@@ -13,7 +13,9 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { Type } from "@sinclair/typebox";
 import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { join, dirname, basename, resolve } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { graphitiMemoryConfigSchema } from "./config.js";
@@ -502,6 +504,193 @@ const memoryGraphitiPlugin = {
               id: subjectId,
             });
             console.log(`Added ${subjectType}:${subjectId} to group:${groupId}`);
+          });
+
+        mem
+          .command("import")
+          .description("Import workspace markdown files (and optionally session transcripts) into Graphiti")
+          .option("--workspace <path>", "Workspace directory", join(homedir(), ".openclaw", "workspace"))
+          .option("--include-sessions", "Also import session JSONL transcripts", false)
+          .option("--session-dir <path>", "Session transcripts directory", join(homedir(), ".openclaw", "agents", "main", "sessions"))
+          .option("--group <id>", "Target group for workspace files", cfg.graphiti.defaultGroupId)
+          .option("--dry-run", "List files without importing", false)
+          .action(async (opts: {
+            workspace: string;
+            includeSessions: boolean;
+            sessionDir: string;
+            group: string;
+            dryRun: boolean;
+          }) => {
+            const workspacePath = resolve(opts.workspace);
+            const targetGroup = opts.group;
+
+            // Discover workspace markdown files
+            let mdFiles: string[] = [];
+            try {
+              const entries = await readdir(workspacePath);
+              mdFiles = entries.filter((f) => f.endsWith(".md")).sort();
+            } catch {
+              console.error(`Cannot read workspace directory: ${workspacePath}`);
+              return;
+            }
+
+            // Also check for memory/ subdirectory
+            try {
+              const memDir = join(workspacePath, "memory");
+              const memEntries = await readdir(memDir);
+              for (const f of memEntries) {
+                if (f.endsWith(".md")) {
+                  mdFiles.push(join("memory", f));
+                }
+              }
+            } catch {
+              // No memory/ subdirectory — that's fine
+            }
+
+            if (mdFiles.length === 0) {
+              console.log("No markdown files found in workspace.");
+              return;
+            }
+
+            console.log(`Found ${mdFiles.length} workspace file(s) in ${workspacePath}:`);
+            for (const f of mdFiles) {
+              const filePath = join(workspacePath, f);
+              const info = await stat(filePath);
+              console.log(`  ${f} (${info.size} bytes)`);
+            }
+
+            if (opts.dryRun) {
+              console.log("\n[dry-run] No files imported.");
+              if (opts.includeSessions) {
+                const sessionPath = resolve(opts.sessionDir);
+                try {
+                  const sessions = (await readdir(sessionPath)).filter((f) => f.endsWith(".jsonl"));
+                  console.log(`\nFound ${sessions.length} session transcript(s) in ${sessionPath}:`);
+                  for (const f of sessions) {
+                    const info = await stat(join(sessionPath, f));
+                    console.log(`  ${f} (${info.size} bytes)`);
+                  }
+                } catch {
+                  console.log(`\nCannot read session directory: ${sessionPath}`);
+                }
+              }
+              return;
+            }
+
+            // Import workspace files
+            console.log(`\nImporting workspace files to group: ${targetGroup}`);
+            let imported = 0;
+            for (const f of mdFiles) {
+              const filePath = join(workspacePath, f);
+              const content = await readFile(filePath, "utf-8");
+              if (!content.trim()) {
+                console.log(`  Skipping ${f} (empty)`);
+                continue;
+              }
+              try {
+                const result = await graphiti.addEpisode({
+                  name: f,
+                  episode_body: content,
+                  source_description: `Imported from OpenClaw workspace: ${f}`,
+                  group_id: targetGroup,
+                  source: "text",
+                });
+                await writeFragmentRelationships(spicedb, {
+                  fragmentId: result.episode_uuid,
+                  groupId: targetGroup,
+                  sharedBy: currentSubject,
+                });
+                console.log(`  Imported ${f} (${content.length} bytes) → episode ${result.episode_uuid}`);
+                imported++;
+              } catch (err) {
+                console.error(`  Failed to import ${f}: ${err instanceof Error ? err.message : String(err)}`);
+              }
+            }
+            console.log(`\nWorkspace import complete: ${imported}/${mdFiles.length} files.`);
+
+            // Import session transcripts
+            if (opts.includeSessions) {
+              const sessionPath = resolve(opts.sessionDir);
+              let jsonlFiles: string[] = [];
+              try {
+                jsonlFiles = (await readdir(sessionPath)).filter((f) => f.endsWith(".jsonl")).sort();
+              } catch {
+                console.error(`\nCannot read session directory: ${sessionPath}`);
+                return;
+              }
+
+              if (jsonlFiles.length === 0) {
+                console.log("\nNo session transcripts found.");
+                return;
+              }
+
+              console.log(`\nImporting ${jsonlFiles.length} session transcript(s)...`);
+              let sessionsImported = 0;
+              for (const f of jsonlFiles) {
+                const sessionId = basename(f, ".jsonl");
+                const sessionGroup = sessionGroupId(sessionId);
+                const filePath = join(sessionPath, f);
+                const raw = await readFile(filePath, "utf-8");
+                const lines = raw.split("\n").filter(Boolean);
+
+                // Extract user/assistant message text from JSONL
+                const conversationLines: string[] = [];
+                for (const line of lines) {
+                  try {
+                    const entry = JSON.parse(line) as Record<string, unknown>;
+                    const role = entry.role as string | undefined;
+                    if (role !== "user" && role !== "assistant") continue;
+                    const content = entry.content;
+                    let text = "";
+                    if (typeof content === "string") {
+                      text = content;
+                    } else if (Array.isArray(content)) {
+                      text = content
+                        .filter((b: unknown) =>
+                          typeof b === "object" && b !== null &&
+                          (b as Record<string, unknown>).type === "text" &&
+                          typeof (b as Record<string, unknown>).text === "string",
+                        )
+                        .map((b: unknown) => (b as Record<string, unknown>).text as string)
+                        .join("\n");
+                    }
+                    if (text && text.length >= 5 && !text.includes("<relevant-memories>")) {
+                      const roleLabel = role === "user" ? "User" : "Assistant";
+                      conversationLines.push(`${roleLabel}: ${text}`);
+                    }
+                  } catch {
+                    // Skip malformed JSONL lines
+                  }
+                }
+
+                if (conversationLines.length === 0) {
+                  console.log(`  Skipping ${f} (no user/assistant messages)`);
+                  continue;
+                }
+
+                try {
+                  await ensureGroupMembership(spicedb, sessionGroup, currentSubject);
+                  const episodeBody = conversationLines.join("\n");
+                  const result = await graphiti.addEpisode({
+                    name: `session_${sessionId}`,
+                    episode_body: episodeBody,
+                    source_description: `Imported session transcript: ${sessionId}`,
+                    group_id: sessionGroup,
+                    source: "message",
+                  });
+                  await writeFragmentRelationships(spicedb, {
+                    fragmentId: result.episode_uuid,
+                    groupId: sessionGroup,
+                    sharedBy: currentSubject,
+                  });
+                  console.log(`  Imported ${f} (${conversationLines.length} messages) → episode ${result.episode_uuid} [group: ${sessionGroup}]`);
+                  sessionsImported++;
+                } catch (err) {
+                  console.error(`  Failed to import ${f}: ${err instanceof Error ? err.message : String(err)}`);
+                }
+              }
+              console.log(`\nSession import complete: ${sessionsImported}/${jsonlFiles.length} transcripts.`);
+            }
           });
       },
       { commands: ["graphiti-mem"] },

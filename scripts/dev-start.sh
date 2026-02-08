@@ -9,6 +9,8 @@
 #   OPENAI_API_KEY        Required by Graphiti for entity extraction
 #   SPICEDB_TOKEN         Pre-shared key (default: dev_token)
 #   SPICEDB_PORT          gRPC port (default: 50051)
+#   SPICEDB_DATASTORE     "memory" (default) or "postgres"
+#   SPICEDB_DB_URI        Postgres connection URI (when SPICEDB_DATASTORE=postgres)
 #   FALKORDB_PORT         Redis port (default: 6379)
 #   GRAPHITI_PORT         HTTP port (default: 8000)
 # -------------------------------------------------------------------
@@ -28,6 +30,8 @@ fi
 
 SPICEDB_TOKEN="${SPICEDB_TOKEN:-dev_token}"
 SPICEDB_PORT="${SPICEDB_PORT:-50051}"
+SPICEDB_DATASTORE="${SPICEDB_DATASTORE:-memory}"
+SPICEDB_DB_URI="${SPICEDB_DB_URI:-postgres://spicedb:spicedb_dev@127.0.0.1:5432/spicedb?sslmode=disable}"
 FALKORDB_PORT="${FALKORDB_PORT:-6379}"
 GRAPHITI_PORT="${GRAPHITI_PORT:-8000}"
 
@@ -88,17 +92,63 @@ else
 fi
 
 # -------------------------------------------------------------------
-# 2. SpiceDB
+# 2. PostgreSQL (when SPICEDB_DATASTORE=postgres)
+# -------------------------------------------------------------------
+if [ "$SPICEDB_DATASTORE" = "postgres" ]; then
+  if pg_isready -q 2>/dev/null; then
+    echo "==> PostgreSQL already running"
+  else
+    echo "==> Starting PostgreSQL..."
+    sudo pg_ctlcluster 15 main start 2>&1
+    echo -n "    Waiting for PostgreSQL..."
+    for i in $(seq 1 20); do
+      if pg_isready -q 2>/dev/null; then
+        echo " ready!"
+        break
+      fi
+      if [ "$i" -eq 20 ]; then
+        echo " timeout!"
+        exit 1
+      fi
+      sleep 0.5
+      echo -n "."
+    done
+  fi
+
+  # Ensure database and user exist (idempotent)
+  sudo su - postgres -c "psql -tc \"SELECT 1 FROM pg_roles WHERE rolname='spicedb'\" | grep -q 1" 2>/dev/null \
+    || sudo su - postgres -c "psql -c \"CREATE USER spicedb WITH PASSWORD 'spicedb_dev';\"" 2>/dev/null
+  sudo su - postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname='spicedb'\" | grep -q 1" 2>/dev/null \
+    || sudo su - postgres -c "psql -c \"CREATE DATABASE spicedb OWNER spicedb;\"" 2>/dev/null
+
+  # Run SpiceDB migrations
+  echo "==> Running SpiceDB migrations..."
+  "$DEV_DIR/bin/spicedb" migrate head \
+    --datastore-engine=postgres \
+    "--datastore-conn-uri=$SPICEDB_DB_URI" \
+    > "$DEV_DIR/logs/spicedb-migrate.log" 2>&1
+  echo "    Migrations complete"
+fi
+
+# -------------------------------------------------------------------
+# 3. SpiceDB
 # -------------------------------------------------------------------
 if is_running "$DEV_DIR/pids/spicedb.pid"; then
   echo "==> SpiceDB already running (pid $(cat "$DEV_DIR/pids/spicedb.pid"))"
 else
-  echo "==> Starting SpiceDB on port $SPICEDB_PORT..."
-  "$DEV_DIR/bin/spicedb" serve \
-    --grpc-preshared-key="$SPICEDB_TOKEN" \
-    --grpc-addr=":$SPICEDB_PORT" \
-    --datastore-engine=memory \
-    --http-enabled=true \
+  SPICEDB_ARGS=(
+    serve
+    "--grpc-preshared-key=$SPICEDB_TOKEN"
+    "--grpc-addr=:$SPICEDB_PORT"
+    "--datastore-engine=$SPICEDB_DATASTORE"
+    --http-enabled=true
+  )
+  if [ "$SPICEDB_DATASTORE" = "postgres" ]; then
+    SPICEDB_ARGS+=("--datastore-conn-uri=$SPICEDB_DB_URI")
+  fi
+
+  echo "==> Starting SpiceDB on port $SPICEDB_PORT (datastore: $SPICEDB_DATASTORE)..."
+  "$DEV_DIR/bin/spicedb" "${SPICEDB_ARGS[@]}" \
     > "$DEV_DIR/logs/spicedb.log" 2>&1 &
   echo $! > "$DEV_DIR/pids/spicedb.pid"
   echo "    PID: $(cat "$DEV_DIR/pids/spicedb.pid") — log: .dev/logs/spicedb.log"
@@ -120,7 +170,7 @@ else
 fi
 
 # -------------------------------------------------------------------
-# 3. Graphiti MCP Server (FalkorDB backend)
+# 4. Graphiti MCP Server (FalkorDB backend)
 # -------------------------------------------------------------------
 if is_running "$DEV_DIR/pids/graphiti.pid"; then
   echo "==> Graphiti MCP server already running (pid $(cat "$DEV_DIR/pids/graphiti.pid"))"
@@ -173,7 +223,7 @@ fi
 echo ""
 echo "==> All services running:"
 echo "    FalkorDB:        localhost:$FALKORDB_PORT (Redis protocol)"
-echo "    SpiceDB gRPC:    localhost:$SPICEDB_PORT"
+echo "    SpiceDB gRPC:    localhost:$SPICEDB_PORT (datastore: $SPICEDB_DATASTORE)"
 echo "    SpiceDB HTTP:    localhost:8443"
 echo "    Graphiti MCP:    http://localhost:$GRAPHITI_PORT"
 echo "    Graphiti health: http://localhost:$GRAPHITI_PORT/health"

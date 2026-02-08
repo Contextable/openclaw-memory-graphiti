@@ -91,19 +91,55 @@ services:
       retries: 5
 
   # --------------------------------------------------------------------------
-  # SpiceDB — authorization engine
+  # PostgreSQL — persistent datastore for SpiceDB
   # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: spicedb
+      POSTGRES_PASSWORD: ${SPICEDB_DB_PASSWORD:-spicedb_dev}
+      POSTGRES_DB: spicedb
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spicedb"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # --------------------------------------------------------------------------
+  # SpiceDB — authorization engine (persistent via PostgreSQL)
+  # --------------------------------------------------------------------------
+  spicedb-migrate:
+    image: authzed/spicedb:latest
+    command:
+      - migrate
+      - head
+      - --datastore-engine=postgres
+      - --datastore-conn-uri=postgres://spicedb:${SPICEDB_DB_PASSWORD:-spicedb_dev}@postgres:5432/spicedb?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   spicedb:
     image: authzed/spicedb:latest
     command:
       - serve
       - --grpc-preshared-key=${SPICEDB_TOKEN:-dev_token}
-      - --datastore-engine=memory
+      - --datastore-engine=postgres
+      - --datastore-conn-uri=postgres://spicedb:${SPICEDB_DB_PASSWORD:-spicedb_dev}@postgres:5432/spicedb?sslmode=disable
       - --http-enabled=true
     ports:
       - "${SPICEDB_GRPC_PORT:-50051}:50051" # gRPC API
       - "${SPICEDB_HTTP_PORT:-8443}:8443"   # HTTP gateway
       - "${SPICEDB_METRICS_PORT:-9090}:9090" # Metrics/health
+    depends_on:
+      postgres:
+        condition: service_healthy
+      spicedb-migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "grpc_health_probe", "-addr=localhost:50051"]
       interval: 5s
@@ -112,3 +148,4 @@ services:
 
 volumes:
   falkordb-data:
+  postgres-data:

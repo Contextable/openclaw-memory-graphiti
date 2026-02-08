@@ -72,7 +72,19 @@ else
 fi
 
 # -------------------------------------------------------------------
-# 3. SpiceDB
+# 3. PostgreSQL (optional — persistent datastore for SpiceDB)
+# -------------------------------------------------------------------
+if command -v pg_isready &>/dev/null; then
+  echo "==> PostgreSQL already installed: $(psql --version 2>/dev/null | head -1)"
+else
+  echo "==> Installing PostgreSQL..."
+  sudo apt-get update -qq 2>&1 | tail -1
+  sudo apt-get install -y -qq postgresql postgresql-client 2>&1 | tail -3
+  echo "    Installed: $(psql --version 2>/dev/null | head -1)"
+fi
+
+# -------------------------------------------------------------------
+# 4. SpiceDB
 # -------------------------------------------------------------------
 if [ -x "$DEV_DIR/bin/spicedb" ]; then
   echo "==> SpiceDB already installed: $("$DEV_DIR/bin/spicedb" version 2>/dev/null || echo 'unknown')"
@@ -85,7 +97,7 @@ else
 fi
 
 # -------------------------------------------------------------------
-# 4. uv (Python package manager)
+# 5. uv (Python package manager)
 # -------------------------------------------------------------------
 if command -v uv &>/dev/null; then
   echo "==> uv already installed: $(uv --version)"
@@ -100,7 +112,7 @@ else
 fi
 
 # -------------------------------------------------------------------
-# 5. Graphiti MCP Server
+# 6. Graphiti MCP Server
 # -------------------------------------------------------------------
 GRAPHITI_DIR="$DEV_DIR/graphiti"
 if [ -d "$GRAPHITI_DIR/mcp_server" ]; then

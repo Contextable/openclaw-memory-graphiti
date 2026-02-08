@@ -14,11 +14,19 @@ Authorization is enforced at the data layer, not in prompts. Every read, write, 
 # Run unit tests (80 tests, no services required)
 npx vitest run --exclude e2e.test.ts
 
-# Run e2e tests (13 tests, requires Docker services running)
+# Run e2e tests (13 tests, requires running services)
 OPENCLAW_LIVE_TEST=1 npx vitest run e2e.test.ts
 
-# Start infrastructure for e2e tests
-cd docker && docker compose up -d falkordb graphiti-mcp spicedb
+# Start infrastructure natively (dev container)
+./scripts/dev-start.sh
+
+# Start infrastructure via Docker Compose (production)
+cd docker && docker compose up -d
+
+# Import existing OpenClaw workspace memories into Graphiti
+openclaw graphiti-mem import --dry-run   # preview
+openclaw graphiti-mem import             # workspace files
+openclaw graphiti-mem import --include-sessions  # + session transcripts
 ```
 
 ## File Layout

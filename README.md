@@ -256,6 +256,7 @@ All commands are under `graphiti-mem`:
 | `graphiti-mem schema-write` | Write/update the SpiceDB authorization schema |
 | `graphiti-mem groups` | List authorized groups for the current subject |
 | `graphiti-mem add-member <group-id> <subject-id>` | Add a subject to a group. Options: `--type` |
+| `graphiti-mem import` | Import workspace markdown files into Graphiti. Options: `--workspace`, `--include-sessions`, `--session-dir`, `--group`, `--dry-run` |
 
 ## Docker Compose
 
@@ -265,13 +266,15 @@ The `docker/` directory contains a full-stack Docker Compose configuration:
 |---------|------|-------------|
 | `falkordb` | 6379, 3000 | Graph database (Redis protocol) + web UI |
 | `graphiti-mcp` | 8000 | Graphiti MCP server (HTTP/SSE) |
+| `postgres` | 5432 | Persistent datastore for SpiceDB |
+| `spicedb-migrate` | — | One-shot: runs SpiceDB DB migrations |
 | `spicedb` | 50051, 8443, 9090 | Authorization engine (gRPC, HTTP, metrics) |
 | `openclaw-gateway` | 18789, 18790 | OpenClaw gateway (optional) |
 
-### Infrastructure Only (Development)
+### Infrastructure Only
 
 ```bash
-docker compose up -d falkordb graphiti-mcp spicedb
+docker compose up -d falkordb graphiti-mcp postgres spicedb-migrate spicedb
 ```
 
 ### Full Stack (Gateway + Infrastructure)
@@ -293,6 +296,81 @@ When running inside Docker Compose, use service hostnames in the plugin config:
   }
 }
 ```
+
+## OpenClaw Integration
+
+### Selecting the Memory Slot
+
+OpenClaw has an exclusive `memory` slot — only one memory plugin is active at a time. To use memory-graphiti, set the slot in your OpenClaw config (`~/.openclaw/openclaw.json`):
+
+```json
+{
+  "plugins": {
+    "slots": {
+      "memory": "memory-graphiti"
+    },
+    "entries": {
+      "memory-graphiti": {
+        "enabled": true,
+        "config": {
+          "spicedb": {
+            "endpoint": "localhost:50051",
+            "token": "dev_token",
+            "insecure": true
+          },
+          "graphiti": {
+            "endpoint": "http://localhost:8000",
+            "defaultGroupId": "main"
+          },
+          "subjectType": "agent",
+          "subjectId": "my-agent",
+          "autoCapture": true,
+          "autoRecall": true
+        }
+      }
+    }
+  }
+}
+```
+
+The plugin must be discoverable — either symlinked into `extensions/memory-graphiti` in the OpenClaw installation, or loaded via `plugins.load.paths`.
+
+### Initialization
+
+After starting infrastructure, write the SpiceDB schema and create group membership:
+
+```bash
+openclaw graphiti-mem schema-write
+openclaw graphiti-mem add-member main my-agent --type agent
+```
+
+The plugin's startup service also auto-creates membership for the configured `subjectId` in the `defaultGroupId`.
+
+### Migrating from an Existing Memory Plugin
+
+The `import` command migrates workspace markdown files (the universal memory format across all OpenClaw memory plugins) into the Graphiti knowledge graph:
+
+```bash
+# Preview what will be imported
+openclaw graphiti-mem import --dry-run
+
+# Import workspace files (USER.md, MEMORY.md, memory/*.md, etc.)
+openclaw graphiti-mem import
+
+# Also import session transcripts
+openclaw graphiti-mem import --include-sessions
+```
+
+Workspace files are imported to the configured `defaultGroupId`. Session transcripts are imported to per-session groups (`session-<id>`).
+
+### Session Logging
+
+OpenClaw's JSONL session logging is always-on core behavior — memory-graphiti does not replace it. The plugin augments session context by:
+
+- **Auto-capture**: Extracting entities and facts from conversation turns into the knowledge graph (`agent_end` hook)
+- **Auto-recall**: Injecting relevant memories into the agent's context before each turn (`before_agent_start` hook)
+
+The JSONL transcripts remain on disk as a historical record. If you switch back to another memory plugin, they're still available.
 
 ## Development
 
