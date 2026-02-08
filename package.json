@@ -1,0 +1,23 @@
+{
+  "name": "@openclaw/memory-graphiti",
+  "version": "2026.2.1",
+  "description": "OpenClaw two-layer memory plugin: SpiceDB authorization + Graphiti knowledge graph",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:e2e": "OPENCLAW_LIVE_TEST=1 vitest run --config vitest.e2e.config.ts"
+  },
+  "dependencies": {
+    "@authzed/authzed-node": "^1.2.0",
+    "@sinclair/typebox": "0.34.48"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18"
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

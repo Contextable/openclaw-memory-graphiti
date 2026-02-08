@@ -1,0 +1,114 @@
+# Full-stack: OpenClaw gateway + memory-graphiti infrastructure
+#
+# All services share the same Docker network, so the gateway plugin
+# reaches Graphiti and SpiceDB by service hostname — no localhost hacks.
+#
+# Usage:
+#   cp .env.example .env        # Fill in OPENAI_API_KEY and other vars
+#   docker compose up -d        # Start everything
+#   docker compose logs -f      # Watch startup
+#
+# The gateway will be available at http://localhost:18789
+# FalkorDB web UI at http://localhost:3000
+#
+# To run without the gateway (infra only, for dev/testing):
+#   docker compose up -d falkordb graphiti-mcp spicedb
+
+services:
+  # --------------------------------------------------------------------------
+  # OpenClaw Gateway
+  # --------------------------------------------------------------------------
+  openclaw-gateway:
+    image: ${OPENCLAW_IMAGE:-openclaw:local}
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY:-}
+      CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY:-}
+      CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE:-}
+      # Memory-graphiti plugin will read these from the plugin config,
+      # but we also pass them as env vars for ${...} interpolation in config
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      SPICEDB_TOKEN: ${SPICEDB_TOKEN:-dev_token}
+    volumes:
+      - ${OPENCLAW_CONFIG_DIR:-./config}:/home/node/.openclaw
+      - ${OPENCLAW_WORKSPACE_DIR:-./workspace}:/home/node/.openclaw/workspace
+    ports:
+      - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+      - "${OPENCLAW_BRIDGE_PORT:-18790}:18790"
+    init: true
+    restart: unless-stopped
+    command:
+      [
+        "node",
+        "dist/index.js",
+        "gateway",
+        "--bind",
+        "${OPENCLAW_GATEWAY_BIND:-lan}",
+        "--port",
+        "18789",
+      ]
+    depends_on:
+      graphiti-mcp:
+        condition: service_healthy
+      spicedb:
+        condition: service_healthy
+
+  # --------------------------------------------------------------------------
+  # FalkorDB — graph database for Graphiti
+  # --------------------------------------------------------------------------
+  falkordb:
+    image: falkordb/falkordb:latest
+    ports:
+      - "${FALKORDB_PORT:-6379}:6379"    # FalkorDB/Redis protocol
+      - "${FALKORDB_UI_PORT:-3000}:3000" # FalkorDB web UI
+    volumes:
+      - falkordb-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # --------------------------------------------------------------------------
+  # Graphiti MCP Server — knowledge graph API over HTTP
+  # --------------------------------------------------------------------------
+  graphiti-mcp:
+    image: ghcr.io/getzep/graphiti-mcp:latest
+    ports:
+      - "${GRAPHITI_PORT:-8000}:8000"    # MCP HTTP endpoint
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - FALKORDB_URI=redis://falkordb:6379
+    depends_on:
+      falkordb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # --------------------------------------------------------------------------
+  # SpiceDB — authorization engine
+  # --------------------------------------------------------------------------
+  spicedb:
+    image: authzed/spicedb:latest
+    command:
+      - serve
+      - --grpc-preshared-key=${SPICEDB_TOKEN:-dev_token}
+      - --datastore-engine=memory
+      - --http-enabled=true
+    ports:
+      - "${SPICEDB_GRPC_PORT:-50051}:50051" # gRPC API
+      - "${SPICEDB_HTTP_PORT:-8443}:8443"   # HTTP gateway
+      - "${SPICEDB_METRICS_PORT:-9090}:9090" # Metrics/health
+    healthcheck:
+      test: ["CMD", "grpc_health_probe", "-addr=localhost:50051"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  falkordb-data:
