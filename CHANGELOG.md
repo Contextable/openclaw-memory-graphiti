@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.1 - 2026-02-09
+
+### Added
+
+- `--sessions-only` flag for `graphiti-mem import` to import session transcripts without re-importing workspace files
+- `<memory-tools>` hint block injected via `before_agent_start` hook so LLMs proactively use `memory_recall`/`memory_store` (the hardcoded system prompt only recognizes memory-core tool names)
+- Persistent SpiceDB storage via PostgreSQL in Docker Compose (`postgres` service + `spicedb-migrate` init container)
+- `graphiti-mem import` CLI command for migrating workspace markdown files and session transcripts into Graphiti
+- OpenClaw integration section in README
+
+### Fixed
+
+- JSONL session transcript parser now handles OpenClaw's nested message format (`{"type":"message","message":{"role":"user","content":[...]}}`)
+- Auto-capture filters `<memory-tools>` tags alongside `<relevant-memories>` to prevent feedback loops
+- `before_agent_start` hook returns tool hint even when no memories are found (was returning nothing)
+
 ## 0.1.0 - Initial Release
 
 Two-layer memory plugin for OpenClaw combining SpiceDB authorization with Graphiti knowledge graph storage.

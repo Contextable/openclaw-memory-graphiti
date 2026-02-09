@@ -1,8 +1,33 @@
 {
-  "name": "@openclaw/memory-graphiti",
-  "version": "2026.2.1",
+  "name": "@contextableai/openclaw-memory-graphiti",
+  "version": "0.1.1",
   "description": "OpenClaw two-layer memory plugin: SpiceDB authorization + Graphiti knowledge graph",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Contextable/openclaw-memory-graphiti.git"
+  },
+  "keywords": [
+    "openclaw",
+    "memory",
+    "graphiti",
+    "spicedb",
+    "knowledge-graph",
+    "authorization"
+  ],
+  "files": [
+    "index.ts",
+    "config.ts",
+    "authorization.ts",
+    "graphiti.ts",
+    "search.ts",
+    "spicedb.ts",
+    "openclaw.plugin.json",
+    "schema.zed",
+    "docker/",
+    "scripts/"
+  ],
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
@@ -14,6 +39,9 @@
   },
   "devDependencies": {
     "vitest": "^4.0.18"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "openclaw": {
     "extensions": [

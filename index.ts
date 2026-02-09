@@ -511,18 +511,22 @@ const memoryGraphitiPlugin = {
           .description("Import workspace markdown files (and optionally session transcripts) into Graphiti")
           .option("--workspace <path>", "Workspace directory", join(homedir(), ".openclaw", "workspace"))
           .option("--include-sessions", "Also import session JSONL transcripts", false)
+          .option("--sessions-only", "Only import session transcripts (skip workspace files)", false)
           .option("--session-dir <path>", "Session transcripts directory", join(homedir(), ".openclaw", "agents", "main", "sessions"))
           .option("--group <id>", "Target group for workspace files", cfg.graphiti.defaultGroupId)
           .option("--dry-run", "List files without importing", false)
           .action(async (opts: {
             workspace: string;
             includeSessions: boolean;
+            sessionsOnly: boolean;
             sessionDir: string;
             group: string;
             dryRun: boolean;
           }) => {
             const workspacePath = resolve(opts.workspace);
             const targetGroup = opts.group;
+            const importSessions = opts.includeSessions || opts.sessionsOnly;
+            const importWorkspace = !opts.sessionsOnly;
 
             // Discover workspace markdown files
             let mdFiles: string[] = [];
@@ -561,7 +565,7 @@ const memoryGraphitiPlugin = {
 
             if (opts.dryRun) {
               console.log("\n[dry-run] No files imported.");
-              if (opts.includeSessions) {
+              if (importSessions) {
                 const sessionPath = resolve(opts.sessionDir);
                 try {
                   const sessions = (await readdir(sessionPath)).filter((f) => f.endsWith(".jsonl"));
@@ -578,38 +582,40 @@ const memoryGraphitiPlugin = {
             }
 
             // Import workspace files
-            console.log(`\nImporting workspace files to group: ${targetGroup}`);
-            let imported = 0;
-            for (const f of mdFiles) {
-              const filePath = join(workspacePath, f);
-              const content = await readFile(filePath, "utf-8");
-              if (!content.trim()) {
-                console.log(`  Skipping ${f} (empty)`);
-                continue;
+            if (importWorkspace) {
+              console.log(`\nImporting workspace files to group: ${targetGroup}`);
+              let imported = 0;
+              for (const f of mdFiles) {
+                const filePath = join(workspacePath, f);
+                const content = await readFile(filePath, "utf-8");
+                if (!content.trim()) {
+                  console.log(`  Skipping ${f} (empty)`);
+                  continue;
+                }
+                try {
+                  const result = await graphiti.addEpisode({
+                    name: f,
+                    episode_body: content,
+                    source_description: `Imported from OpenClaw workspace: ${f}`,
+                    group_id: targetGroup,
+                    source: "text",
+                  });
+                  await writeFragmentRelationships(spicedb, {
+                    fragmentId: result.episode_uuid,
+                    groupId: targetGroup,
+                    sharedBy: currentSubject,
+                  });
+                  console.log(`  Imported ${f} (${content.length} bytes) → episode ${result.episode_uuid}`);
+                  imported++;
+                } catch (err) {
+                  console.error(`  Failed to import ${f}: ${err instanceof Error ? err.message : String(err)}`);
+                }
               }
-              try {
-                const result = await graphiti.addEpisode({
-                  name: f,
-                  episode_body: content,
-                  source_description: `Imported from OpenClaw workspace: ${f}`,
-                  group_id: targetGroup,
-                  source: "text",
-                });
-                await writeFragmentRelationships(spicedb, {
-                  fragmentId: result.episode_uuid,
-                  groupId: targetGroup,
-                  sharedBy: currentSubject,
-                });
-                console.log(`  Imported ${f} (${content.length} bytes) → episode ${result.episode_uuid}`);
-                imported++;
-              } catch (err) {
-                console.error(`  Failed to import ${f}: ${err instanceof Error ? err.message : String(err)}`);
-              }
+              console.log(`\nWorkspace import complete: ${imported}/${mdFiles.length} files.`);
             }
-            console.log(`\nWorkspace import complete: ${imported}/${mdFiles.length} files.`);
 
             // Import session transcripts
-            if (opts.includeSessions) {
+            if (importSessions) {
               const sessionPath = resolve(opts.sessionDir);
               let jsonlFiles: string[] = [];
               try {
@@ -638,9 +644,13 @@ const memoryGraphitiPlugin = {
                 for (const line of lines) {
                   try {
                     const entry = JSON.parse(line) as Record<string, unknown>;
-                    const role = entry.role as string | undefined;
+                    // OpenClaw JSONL format: {"type":"message","message":{"role":"user","content":[...]}}
+                    const msg = (entry.type === "message" && entry.message && typeof entry.message === "object")
+                      ? entry.message as Record<string, unknown>
+                      : entry;
+                    const role = msg.role as string | undefined;
                     if (role !== "user" && role !== "assistant") continue;
-                    const content = entry.content;
+                    const content = msg.content;
                     let text = "";
                     if (typeof content === "string") {
                       text = content;
@@ -654,7 +664,7 @@ const memoryGraphitiPlugin = {
                         .map((b: unknown) => (b as Record<string, unknown>).text as string)
                         .join("\n");
                     }
-                    if (text && text.length >= 5 && !text.includes("<relevant-memories>")) {
+                    if (text && text.length >= 5 && !text.includes("<relevant-memories>") && !text.includes("<memory-tools>")) {
                       const roleLabel = role === "user" ? "User" : "Assistant";
                       conversationLines.push(`${roleLabel}: ${text}`);
                     }
@@ -750,8 +760,16 @@ const memoryGraphitiPlugin = {
           const sessionResults = deduplicateSessionResults(longTermResults, rawSessionResults);
 
           const totalCount = longTermResults.length + sessionResults.length;
+
+          const toolHint =
+            "<memory-tools>\n" +
+            "You have knowledge-graph memory tools. Use them proactively:\n" +
+            "- memory_recall: Search for facts, preferences, people, decisions, or past context. Use this BEFORE saying you don't know or remember something.\n" +
+            "- memory_store: Save important new information (preferences, decisions, facts about people).\n" +
+            "</memory-tools>";
+
           if (totalCount === 0) {
-            return;
+            return { prependContext: toolHint };
           }
 
           const memoryContext = formatDualResults(longTermResults, sessionResults);
@@ -760,7 +778,7 @@ const memoryGraphitiPlugin = {
           );
 
           return {
-            prependContext: `<relevant-memories>\nThe following memories from the knowledge graph may be relevant:\n${memoryContext}\n</relevant-memories>`,
+            prependContext: `${toolHint}\n\n<relevant-memories>\nThe following memories from the knowledge graph may be relevant:\n${memoryContext}\n</relevant-memories>`,
           };
         } catch (err) {
           api.logger.warn(`memory-graphiti: recall failed: ${String(err)}`);
