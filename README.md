@@ -1,4 +1,4 @@
-# @openclaw/memory-graphiti
+# @contextableai/memory-graphiti
 
 Two-layer memory plugin for OpenClaw: **SpiceDB** for authorization, **Graphiti** for knowledge graph storage.
 
