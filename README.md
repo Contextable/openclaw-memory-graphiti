@@ -57,7 +57,7 @@ Then restart the gateway. On first start, the plugin automatically:
 cd docker
 cp .env.example .env
 # Edit .env — set OPENAI_API_KEY at minimum
-docker compose up -d falkordb graphiti-mcp postgres spicedb-migrate spicedb
+docker compose up -d
 ```
 
 This starts:
@@ -266,16 +266,16 @@ The `docker/` directory contains a full-stack Docker Compose configuration:
 | `spicedb` | 50051, 8443, 9090 | Authorization engine (gRPC, HTTP, metrics) |
 | `openclaw-gateway` | 18789, 18790 | OpenClaw gateway (optional) |
 
-### Infrastructure Only
-
-```bash
-docker compose up -d falkordb graphiti-mcp postgres spicedb-migrate spicedb
-```
-
-### Full Stack (Gateway + Infrastructure)
+### Infrastructure (default)
 
 ```bash
 docker compose up -d
+```
+
+### With OpenClaw Gateway
+
+```bash
+docker compose --profile gateway up -d
 ```
 
 When running inside Docker Compose, use service hostnames in the plugin config:

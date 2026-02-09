@@ -1,24 +1,26 @@
-# Full-stack: OpenClaw gateway + memory-graphiti infrastructure
-#
-# All services share the same Docker network, so the gateway plugin
-# reaches Graphiti and SpiceDB by service hostname — no localhost hacks.
+# memory-graphiti infrastructure: FalkorDB + Graphiti MCP + PostgreSQL + SpiceDB
 #
 # Usage:
-#   cp .env.example .env        # Fill in OPENAI_API_KEY and other vars
-#   docker compose up -d        # Start everything
+#   cp .env.example .env        # Fill in OPENAI_API_KEY at minimum
+#   docker compose up -d        # Start infrastructure
 #   docker compose logs -f      # Watch startup
 #
-# The gateway will be available at http://localhost:18789
-# FalkorDB web UI at http://localhost:3000
+# Infrastructure services are available at:
+#   FalkorDB:        localhost:6379 (Redis protocol), localhost:3000 (web UI)
+#   Graphiti MCP:    http://localhost:8000
+#   SpiceDB gRPC:    localhost:50051
+#   SpiceDB HTTP:    localhost:8443
+#   PostgreSQL:      localhost:5432
 #
-# To run without the gateway (infra only, for dev/testing):
-#   docker compose up -d falkordb graphiti-mcp spicedb
+# To also run the OpenClaw gateway (optional):
+#   docker compose --profile gateway up -d
 
 services:
   # --------------------------------------------------------------------------
-  # OpenClaw Gateway
+  # OpenClaw Gateway (opt-in via --profile gateway)
   # --------------------------------------------------------------------------
   openclaw-gateway:
+    profiles: [gateway]
     image: ${OPENCLAW_IMAGE:-openclaw:local}
     environment:
       HOME: /home/node
@@ -27,8 +29,6 @@ services:
       CLAUDE_AI_SESSION_KEY: ${CLAUDE_AI_SESSION_KEY:-}
       CLAUDE_WEB_SESSION_KEY: ${CLAUDE_WEB_SESSION_KEY:-}
       CLAUDE_WEB_COOKIE: ${CLAUDE_WEB_COOKIE:-}
-      # Memory-graphiti plugin will read these from the plugin config,
-      # but we also pass them as env vars for ${...} interpolation in config
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       SPICEDB_TOKEN: ${SPICEDB_TOKEN:-dev_token}
     volumes:
