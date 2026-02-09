@@ -909,8 +909,17 @@ const memoryGraphitiPlugin = {
         const graphitiOk = await graphiti.healthCheck();
         let spicedbOk = false;
         try {
-          await spicedb.readSchema();
+          const existing = await spicedb.readSchema();
           spicedbOk = true;
+
+          // Auto-write schema if SpiceDB has no schema yet
+          if (!existing || !existing.includes("memory_group")) {
+            api.logger.info("memory-graphiti: writing SpiceDB schema (first run)");
+            const schemaPath = join(dirname(fileURLToPath(import.meta.url)), "schema.zed");
+            const schema = readFileSync(schemaPath, "utf-8");
+            await spicedb.writeSchema(schema);
+            api.logger.info("memory-graphiti: SpiceDB schema written successfully");
+          }
         } catch {
           // Will be retried on first use
         }

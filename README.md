@@ -1,4 +1,4 @@
-# @contextableai/memory-graphiti
+# @contextableai/openclaw-memory-graphiti
 
 Two-layer memory plugin for OpenClaw: **SpiceDB** for authorization, **Graphiti** for knowledge graph storage.
 
@@ -30,7 +30,21 @@ Agents remember conversations as structured entities and facts in a knowledge gr
 
 **SpiceDB** determines which `group_id`s a subject (agent or person) can access, then **Graphiti** searches or stores memories scoped to those groups.
 
-## Quick Start
+## Installation
+
+```bash
+openclaw plugins install @contextableai/openclaw-memory-graphiti
+```
+
+Or with npm:
+
+```bash
+npm install @contextableai/openclaw-memory-graphiti
+```
+
+Then restart the gateway. On first start, the plugin automatically:
+- Writes the SpiceDB authorization schema (if not already present)
+- Creates group membership for the configured agent in the default group
 
 ### Prerequisites
 
@@ -43,45 +57,26 @@ Agents remember conversations as structured entities and facts in a knowledge gr
 cd docker
 cp .env.example .env
 # Edit .env — set OPENAI_API_KEY at minimum
-docker compose up -d falkordb graphiti-mcp spicedb
+docker compose up -d falkordb graphiti-mcp postgres spicedb-migrate spicedb
 ```
 
 This starts:
 - **FalkorDB** on port 6379 (graph database, web UI on port 3000)
 - **Graphiti MCP Server** on port 8000 (knowledge graph API)
+- **PostgreSQL** on port 5432 (persistent datastore for SpiceDB)
 - **SpiceDB** on port 50051 (authorization engine)
 
-### 2. Configure the Plugin
-
-Add to your OpenClaw plugin configuration:
-
-```json
-{
-  "spicedb": {
-    "endpoint": "localhost:50051",
-    "token": "dev_token",
-    "insecure": true
-  },
-  "graphiti": {
-    "endpoint": "http://localhost:8000",
-    "defaultGroupId": "main"
-  },
-  "subjectId": "my-agent"
-}
-```
-
-### 3. Initialize SpiceDB Schema
+### 2. Restart the Gateway
 
 ```bash
-openclaw graphiti-mem schema-write
+openclaw gateway restart
 ```
 
-### 4. Add Group Membership
+The plugin auto-initializes on startup — no manual `schema-write` or `add-member` needed for basic use. The SpiceDB schema is written automatically on first run, and the configured `subjectId` is added to the `defaultGroupId`.
+
+### 3. (Optional) Add More Group Members
 
 ```bash
-# Add the agent to a group
-openclaw graphiti-mem add-member main my-agent --type agent
-
 # Add people to groups
 openclaw graphiti-mem add-member family mom --type person
 openclaw graphiti-mem add-member family dad --type person

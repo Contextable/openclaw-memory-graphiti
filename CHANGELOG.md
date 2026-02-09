@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2 - 2026-02-09
+
+### Added
+
+- `openclaw.install` metadata in package.json for one-liner installation via `openclaw plugins install @contextableai/openclaw-memory-graphiti`
+- Auto-write SpiceDB schema on first gateway start (no manual `schema-write` needed)
+- Updated README with installation instructions and simplified quick start
+
 ## 0.1.1 - 2026-02-09
 
 ### Added
