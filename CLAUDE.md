@@ -11,7 +11,7 @@ Authorization is enforced at the data layer, not in prompts. Every read, write, 
 ## Quick Reference
 
 ```bash
-# Run unit tests (85 tests, no services required)
+# Run unit tests (no services required)
 npx vitest run --exclude e2e.test.ts
 
 # Run e2e tests (13 tests, requires running services)
@@ -28,13 +28,19 @@ cd docker && docker compose up -d
 openclaw graphiti-mem import --dry-run   # preview
 openclaw graphiti-mem import             # workspace files
 openclaw graphiti-mem import --include-sessions  # + session transcripts
+
+# Standalone CLI (no OpenClaw gateway required)
+SPICEDB_TOKEN=dev_token npm run cli -- status
+SPICEDB_TOKEN=dev_token npx tsx bin/graphiti-mem.ts search "some query"
 ```
 
 ## File Layout
 
 | File | Purpose |
 |------|---------|
-| `index.ts` | Plugin entry point. Registers tools (`memory_recall`, `memory_store`, `memory_forget`, `memory_status`), lifecycle hooks (`before_agent_start` for auto-recall, `agent_end` for auto-capture), CLI commands (`graphiti-mem`), and the startup service. |
+| `index.ts` | Plugin entry point. Registers tools (`memory_recall`, `memory_store`, `memory_forget`, `memory_status`), lifecycle hooks (`before_agent_start` for auto-recall, `agent_end` for auto-capture), CLI commands (via `cli.ts`), and the startup service. |
+| `cli.ts` | Shared CLI command registration (`registerCommands()`). Used by both the plugin (`index.ts`) and the standalone entry point (`bin/graphiti-mem.ts`). |
+| `bin/graphiti-mem.ts` | Standalone CLI entry point. Loads config from env vars / JSON file, instantiates clients, delegates to `registerCommands()`. |
 | `config.ts` | Config schema, parsing, defaults, `${ENV_VAR}` interpolation. |
 | `graphiti.ts` | `GraphitiClient` — HTTP client for Graphiti MCP server. JSON-RPC 2.0 over SSE with MCP session lifecycle (initialize → tools/call → close). |
 | `spicedb.ts` | `SpiceDbClient` — gRPC wrapper around `@authzed/authzed-node`. WriteSchema, ReadSchema, WriteRelationships, DeleteRelationships, DeleteRelationshipsByFilter, BulkImportRelationships, CheckPermission, LookupResources. All reads accept a `ConsistencyMode` parameter; all writes return a ZedToken string. |
