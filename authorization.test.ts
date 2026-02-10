@@ -17,6 +17,7 @@ function mockSpiceDb(overrides?: Partial<SpiceDbClient>): SpiceDbClient {
     writeRelationships: vi.fn().mockResolvedValue(undefined),
     deleteRelationships: vi.fn().mockResolvedValue(undefined),
     deleteRelationshipsByFilter: vi.fn().mockResolvedValue("delete-token-1"),
+    bulkImportRelationships: vi.fn().mockResolvedValue(0),
     checkPermission: vi.fn().mockResolvedValue(true),
     lookupResources: vi.fn().mockResolvedValue([]),
     ...overrides,

@@ -584,9 +584,24 @@ const memoryGraphitiPlugin = {
               return;
             }
 
-            // Import workspace files
+            // Two-phase import:
+            //   Phase 1 — Graphiti ingestion: addEpisode for each file, collect results
+            //   Phase 2 — SpiceDB bulk: single bulkImportRelationships call for all tuples
+            // This is more efficient than interleaving and leaves SpiceDB in a clean
+            // state if Graphiti ingestion fails partway (orphaned episodes are invisible
+            // without authorization).
+
+            const pendingTuples: import("./spicedb.js").RelationshipTuple[] = [];
+            const membershipGroups = new Set<string>();
+
+            // Ensure agent is a member of the target workspace group
             if (importWorkspace) {
-              console.log(`\nImporting workspace files to group: ${targetGroup}`);
+              membershipGroups.add(targetGroup);
+            }
+
+            // Phase 1a: Import workspace files to Graphiti
+            if (importWorkspace) {
+              console.log(`\nPhase 1: Importing workspace files to Graphiti (group: ${targetGroup})...`);
               let imported = 0;
               for (const f of mdFiles) {
                 const filePath = join(workspacePath, f);
@@ -603,21 +618,33 @@ const memoryGraphitiPlugin = {
                     group_id: targetGroup,
                     source: "text",
                   });
-                  await writeFragmentRelationships(spicedb, {
-                    fragmentId: result.episode_uuid,
-                    groupId: targetGroup,
-                    sharedBy: currentSubject,
-                  });
+                  // Collect tuples for Phase 2
+                  pendingTuples.push(
+                    {
+                      resourceType: "memory_fragment",
+                      resourceId: result.episode_uuid,
+                      relation: "source_group",
+                      subjectType: "group",
+                      subjectId: targetGroup,
+                    },
+                    {
+                      resourceType: "memory_fragment",
+                      resourceId: result.episode_uuid,
+                      relation: "shared_by",
+                      subjectType: currentSubject.type,
+                      subjectId: currentSubject.id,
+                    },
+                  );
                   console.log(`  Imported ${f} (${content.length} bytes) → episode ${result.episode_uuid}`);
                   imported++;
                 } catch (err) {
                   console.error(`  Failed to import ${f}: ${err instanceof Error ? err.message : String(err)}`);
                 }
               }
-              console.log(`\nWorkspace import complete: ${imported}/${mdFiles.length} files.`);
+              console.log(`Workspace: ${imported}/${mdFiles.length} files ingested.`);
             }
 
-            // Import session transcripts
+            // Phase 1b: Import session transcripts to Graphiti
             if (importSessions) {
               const sessionPath = resolve(opts.sessionDir);
               let jsonlFiles: string[] = [];
@@ -625,85 +652,122 @@ const memoryGraphitiPlugin = {
                 jsonlFiles = (await readdir(sessionPath)).filter((f) => f.endsWith(".jsonl")).sort();
               } catch {
                 console.error(`\nCannot read session directory: ${sessionPath}`);
-                return;
+                // Continue to Phase 2 with whatever tuples we have
+                jsonlFiles = [];
               }
 
               if (jsonlFiles.length === 0) {
                 console.log("\nNo session transcripts found.");
-                return;
-              }
+              } else {
+                console.log(`\nPhase 1: Importing ${jsonlFiles.length} session transcript(s) to Graphiti...`);
+                let sessionsImported = 0;
+                for (const f of jsonlFiles) {
+                  const sessionId = basename(f, ".jsonl");
+                  const sessionGroup = sessionGroupId(sessionId);
+                  const filePath = join(sessionPath, f);
+                  const raw = await readFile(filePath, "utf-8");
+                  const lines = raw.split("\n").filter(Boolean);
 
-              console.log(`\nImporting ${jsonlFiles.length} session transcript(s)...`);
-              let sessionsImported = 0;
-              for (const f of jsonlFiles) {
-                const sessionId = basename(f, ".jsonl");
-                const sessionGroup = sessionGroupId(sessionId);
-                const filePath = join(sessionPath, f);
-                const raw = await readFile(filePath, "utf-8");
-                const lines = raw.split("\n").filter(Boolean);
+                  // Extract user/assistant message text from JSONL
+                  const conversationLines: string[] = [];
+                  for (const line of lines) {
+                    try {
+                      const entry = JSON.parse(line) as Record<string, unknown>;
+                      // OpenClaw JSONL format: {"type":"message","message":{"role":"user","content":[...]}}
+                      const msg = (entry.type === "message" && entry.message && typeof entry.message === "object")
+                        ? entry.message as Record<string, unknown>
+                        : entry;
+                      const role = msg.role as string | undefined;
+                      if (role !== "user" && role !== "assistant") continue;
+                      const content = msg.content;
+                      let text = "";
+                      if (typeof content === "string") {
+                        text = content;
+                      } else if (Array.isArray(content)) {
+                        text = content
+                          .filter((b: unknown) =>
+                            typeof b === "object" && b !== null &&
+                            (b as Record<string, unknown>).type === "text" &&
+                            typeof (b as Record<string, unknown>).text === "string",
+                          )
+                          .map((b: unknown) => (b as Record<string, unknown>).text as string)
+                          .join("\n");
+                      }
+                      if (text && text.length >= 5 && !text.includes("<relevant-memories>") && !text.includes("<memory-tools>")) {
+                        const roleLabel = role === "user" ? "User" : "Assistant";
+                        conversationLines.push(`${roleLabel}: ${text}`);
+                      }
+                    } catch {
+                      // Skip malformed JSONL lines
+                    }
+                  }
 
-                // Extract user/assistant message text from JSONL
-                const conversationLines: string[] = [];
-                for (const line of lines) {
+                  if (conversationLines.length === 0) {
+                    console.log(`  Skipping ${f} (no user/assistant messages)`);
+                    continue;
+                  }
+
                   try {
-                    const entry = JSON.parse(line) as Record<string, unknown>;
-                    // OpenClaw JSONL format: {"type":"message","message":{"role":"user","content":[...]}}
-                    const msg = (entry.type === "message" && entry.message && typeof entry.message === "object")
-                      ? entry.message as Record<string, unknown>
-                      : entry;
-                    const role = msg.role as string | undefined;
-                    if (role !== "user" && role !== "assistant") continue;
-                    const content = msg.content;
-                    let text = "";
-                    if (typeof content === "string") {
-                      text = content;
-                    } else if (Array.isArray(content)) {
-                      text = content
-                        .filter((b: unknown) =>
-                          typeof b === "object" && b !== null &&
-                          (b as Record<string, unknown>).type === "text" &&
-                          typeof (b as Record<string, unknown>).text === "string",
-                        )
-                        .map((b: unknown) => (b as Record<string, unknown>).text as string)
-                        .join("\n");
-                    }
-                    if (text && text.length >= 5 && !text.includes("<relevant-memories>") && !text.includes("<memory-tools>")) {
-                      const roleLabel = role === "user" ? "User" : "Assistant";
-                      conversationLines.push(`${roleLabel}: ${text}`);
-                    }
-                  } catch {
-                    // Skip malformed JSONL lines
+                    const episodeBody = conversationLines.join("\n");
+                    const result = await graphiti.addEpisode({
+                      name: `session_${sessionId}`,
+                      episode_body: episodeBody,
+                      source_description: `Imported session transcript: ${sessionId}`,
+                      group_id: sessionGroup,
+                      source: "message",
+                    });
+                    // Collect tuples for Phase 2
+                    membershipGroups.add(sessionGroup);
+                    pendingTuples.push(
+                      {
+                        resourceType: "memory_fragment",
+                        resourceId: result.episode_uuid,
+                        relation: "source_group",
+                        subjectType: "group",
+                        subjectId: sessionGroup,
+                      },
+                      {
+                        resourceType: "memory_fragment",
+                        resourceId: result.episode_uuid,
+                        relation: "shared_by",
+                        subjectType: currentSubject.type,
+                        subjectId: currentSubject.id,
+                      },
+                    );
+                    console.log(`  Imported ${f} (${conversationLines.length} messages) → episode ${result.episode_uuid} [group: ${sessionGroup}]`);
+                    sessionsImported++;
+                  } catch (err) {
+                    console.error(`  Failed to import ${f}: ${err instanceof Error ? err.message : String(err)}`);
                   }
                 }
-
-                if (conversationLines.length === 0) {
-                  console.log(`  Skipping ${f} (no user/assistant messages)`);
-                  continue;
-                }
-
-                try {
-                  await ensureGroupMembership(spicedb, sessionGroup, currentSubject);
-                  const episodeBody = conversationLines.join("\n");
-                  const result = await graphiti.addEpisode({
-                    name: `session_${sessionId}`,
-                    episode_body: episodeBody,
-                    source_description: `Imported session transcript: ${sessionId}`,
-                    group_id: sessionGroup,
-                    source: "message",
-                  });
-                  await writeFragmentRelationships(spicedb, {
-                    fragmentId: result.episode_uuid,
-                    groupId: sessionGroup,
-                    sharedBy: currentSubject,
-                  });
-                  console.log(`  Imported ${f} (${conversationLines.length} messages) → episode ${result.episode_uuid} [group: ${sessionGroup}]`);
-                  sessionsImported++;
-                } catch (err) {
-                  console.error(`  Failed to import ${f}: ${err instanceof Error ? err.message : String(err)}`);
-                }
+                console.log(`Sessions: ${sessionsImported}/${jsonlFiles.length} transcripts ingested.`);
               }
-              console.log(`\nSession import complete: ${sessionsImported}/${jsonlFiles.length} transcripts.`);
             }
+
+            // Phase 2: Bulk write all SpiceDB relationships
+            if (pendingTuples.length > 0) {
+              // Add group membership tuples for session groups
+              for (const groupId of membershipGroups) {
+                pendingTuples.push({
+                  resourceType: "group",
+                  resourceId: groupId,
+                  relation: "member",
+                  subjectType: currentSubject.type,
+                  subjectId: currentSubject.id,
+                });
+              }
+
+              console.log(`\nPhase 2: Writing ${pendingTuples.length} SpiceDB relationships...`);
+              try {
+                const count = await spicedb.bulkImportRelationships(pendingTuples);
+                console.log(`SpiceDB: ${count} relationships written.`);
+              } catch (err) {
+                console.error(`SpiceDB bulk import failed: ${err instanceof Error ? err.message : String(err)}`);
+                console.error("Graphiti episodes were ingested but lack authorization. Re-run import or add relationships manually.");
+              }
+            }
+
+            console.log("\nImport complete.")
           });
       },
       { commands: ["graphiti-mem"] },

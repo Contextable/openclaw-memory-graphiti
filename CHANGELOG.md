@@ -4,6 +4,7 @@
 
 ### Added
 
+- Bulk import: `graphiti-mem import` now uses two-phase approach — Graphiti ingestion first, then a single `BulkImportRelationships` streaming RPC to SpiceDB (with batched `WriteRelationships` fallback), replacing per-file interleaved writes
 - ZedToken consistency tuning: SpiceDB reads after writes now use `at_least_as_fresh` consistency with the token from the preceding write, ensuring causal consistency without the cost of `fully_consistent`; reads without a prior write use `minimize_latency` for optimal performance
 
 ### Fixed

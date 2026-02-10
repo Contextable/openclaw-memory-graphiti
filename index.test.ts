@@ -14,6 +14,7 @@ vi.mock("@authzed/authzed-node", () => {
     readSchema: vi.fn().mockResolvedValue({ schemaText: "" }),
     writeRelationships: vi.fn().mockResolvedValue({ writtenAt: { token: "write-token-1" } }),
     deleteRelationships: vi.fn().mockResolvedValue({ deletedAt: { token: "delete-token" } }),
+    bulkImportRelationships: vi.fn(),
     checkPermission: vi.fn().mockResolvedValue({
       permissionship: 2, // HAS_PERMISSION
     }),
@@ -41,6 +42,7 @@ vi.mock("@authzed/authzed-node", () => {
       Relationship: { create: vi.fn((v: unknown) => v) },
       ObjectReference: { create: vi.fn((v: unknown) => v) },
       SubjectReference: { create: vi.fn((v: unknown) => v) },
+      BulkImportRelationshipsRequest: { create: vi.fn((v: unknown) => v) },
       Consistency: { create: vi.fn((v: unknown) => v) },
       ZedToken: { create: vi.fn((v: unknown) => v) },
     },

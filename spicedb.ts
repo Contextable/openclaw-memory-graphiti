@@ -2,7 +2,8 @@
  * SpiceDB Client Wrapper
  *
  * Wraps @authzed/authzed-node for authorization operations:
- * WriteSchema, WriteRelationships, DeleteRelationships, LookupResources, CheckPermission.
+ * WriteSchema, WriteRelationships, DeleteRelationships, BulkImportRelationships,
+ * LookupResources, CheckPermission.
  */
 
 import { v1 } from "@authzed/authzed-node";
@@ -134,6 +135,88 @@ export class SpiceDbClient {
 
     const response = await this.promises.deleteRelationships(request);
     return response.deletedAt?.token;
+  }
+
+  // --------------------------------------------------------------------------
+  // Bulk Import
+  // --------------------------------------------------------------------------
+
+  private toRelationship(t: RelationshipTuple) {
+    return v1.Relationship.create({
+      resource: v1.ObjectReference.create({
+        objectType: t.resourceType,
+        objectId: t.resourceId,
+      }),
+      relation: t.relation,
+      subject: v1.SubjectReference.create({
+        object: v1.ObjectReference.create({
+          objectType: t.subjectType,
+          objectId: t.subjectId,
+        }),
+      }),
+    });
+  }
+
+  /**
+   * Bulk import relationships using the streaming ImportBulkRelationships RPC.
+   * More efficient than individual writeRelationships calls for large batches.
+   * Falls back to batched writeRelationships if the streaming RPC is unavailable.
+   */
+  async bulkImportRelationships(
+    tuples: RelationshipTuple[],
+    batchSize = 1000,
+  ): Promise<number> {
+    if (tuples.length === 0) return 0;
+
+    // Try streaming bulk import first
+    if (typeof this.promises.bulkImportRelationships === "function") {
+      return this.bulkImportViaStream(tuples, batchSize);
+    }
+
+    // Fallback: batched writeRelationships
+    return this.bulkImportViaWrite(tuples, batchSize);
+  }
+
+  private bulkImportViaStream(
+    tuples: RelationshipTuple[],
+    batchSize: number,
+  ): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const stream = this.promises.bulkImportRelationships(
+        (err: Error | null, response?: { numLoaded?: string }) => {
+          if (err) reject(err);
+          else resolve(Number(response?.numLoaded ?? tuples.length));
+        },
+      );
+
+      stream.on("error", (err: Error) => {
+        reject(err);
+      });
+
+      for (let i = 0; i < tuples.length; i += batchSize) {
+        const chunk = tuples.slice(i, i + batchSize);
+        stream.write(
+          v1.BulkImportRelationshipsRequest.create({
+            relationships: chunk.map((t) => this.toRelationship(t)),
+          }),
+        );
+      }
+
+      stream.end();
+    });
+  }
+
+  private async bulkImportViaWrite(
+    tuples: RelationshipTuple[],
+    batchSize: number,
+  ): Promise<number> {
+    let total = 0;
+    for (let i = 0; i < tuples.length; i += batchSize) {
+      const chunk = tuples.slice(i, i + batchSize);
+      await this.writeRelationships(chunk);
+      total += chunk.length;
+    }
+    return total;
   }
 
   // --------------------------------------------------------------------------
