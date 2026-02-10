@@ -106,7 +106,7 @@ describe("GraphitiClient", () => {
     expect(initCall[0]).toBe("http://localhost:8000/mcp");
     const initBody = JSON.parse(initCall[1]!.body as string);
     expect(initBody.method).toBe("initialize");
-    expect(initBody.params.clientInfo.name).toBe("memory-graphiti");
+    expect(initBody.params.clientInfo.name).toBe("openclaw-memory-graphiti");
 
     // Second call: notifications/initialized
     const notifCall = fetchMock.mock.calls[1];
