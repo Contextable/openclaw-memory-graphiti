@@ -96,7 +96,7 @@ export class GraphitiClient {
       params: {
         protocolVersion: "2025-11-25",
         capabilities: {},
-        clientInfo: { name: "openclaw-memory-graphiti", version: "1.0.0" },
+        clientInfo: { name: "memory-graphiti", version: "1.0.0" },
       },
     };
 
