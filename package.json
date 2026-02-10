@@ -18,6 +18,7 @@
   ],
   "files": [
     "index.ts",
+    "cli.ts",
     "config.ts",
     "authorization.ts",
     "graphiti.ts",
@@ -26,18 +27,23 @@
     "openclaw.plugin.json",
     "schema.zed",
     "docker/",
-    "scripts/"
+    "scripts/",
+    "bin/"
   ],
   "scripts": {
+    "cli": "tsx bin/graphiti-mem.ts",
+    "typecheck": "tsc --noEmit 2>&1 | grep -v '../openclaw/' | grep -c 'error TS' | xargs -I{} test {} -eq 0",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "OPENCLAW_LIVE_TEST=1 vitest run --config vitest.e2e.config.ts"
   },
   "dependencies": {
     "@authzed/authzed-node": "^1.2.0",
-    "@sinclair/typebox": "0.34.48"
+    "@sinclair/typebox": "0.34.48",
+    "commander": "^13.1.0"
   },
   "devDependencies": {
+    "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   },
   "publishConfig": {

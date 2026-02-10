@@ -318,7 +318,7 @@ describe("memory-graphiti plugin", () => {
     // Simulate session ID being set via before_agent_start hook
     const beforeHook = registeredHooks["before_agent_start"]?.[0];
     if (beforeHook) {
-      await beforeHook({ prompt: "hello world test prompt", ctx: { sessionKey: "sess-123" } });
+      await beforeHook({ prompt: "hello world test prompt" }, { sessionKey: "sess-123" });
     }
 
     const storeTool = registeredTools.find((t) => t.opts?.name === "memory_store")?.tool;
@@ -397,7 +397,7 @@ describe("memory-graphiti plugin", () => {
     // Set session ID via hook — establishes "sess-write" as the agent's own session
     const beforeHook = registeredHooks["before_agent_start"]?.[0];
     if (beforeHook) {
-      await beforeHook({ prompt: "test prompt for session", ctx: { sessionKey: "sess-write" } });
+      await beforeHook({ prompt: "test prompt for session" }, { sessionKey: "sess-write" });
     }
 
     const storeTool = registeredTools.find((t) => t.opts?.name === "memory_store")?.tool;
@@ -432,7 +432,7 @@ describe("memory-graphiti plugin", () => {
     // Set this agent's session to "my-session"
     const beforeHook = registeredHooks["before_agent_start"]?.[0];
     if (beforeHook) {
-      await beforeHook({ prompt: "test", ctx: { sessionKey: "my-session" } });
+      await beforeHook({ prompt: "test" }, { sessionKey: "my-session" });
     }
 
     const storeTool = registeredTools.find((t) => t.opts?.name === "memory_store")?.tool;
@@ -483,7 +483,7 @@ describe("memory-graphiti plugin", () => {
         { role: "user", content: "Some info to capture" },
         { role: "assistant", content: "Got it!" },
       ],
-    });
+    }, {});
 
     // Verify add_memory was NOT called
     const addMemoryCalls = mockFetch.mock.calls.filter((call) => {
@@ -578,8 +578,7 @@ describe("memory-graphiti plugin", () => {
         { role: "assistant", content: "Got it! I'll remember your dark mode preference." },
         { role: "user", content: "Also, my email is mark@example.com" },
       ],
-      ctx: { sessionKey: "sess-cap-1" },
-    });
+    }, { sessionKey: "sess-cap-1" });
 
     // Verify add_memory was called (tool name changed from add_episode)
     const fetchCalls = mockFetch.mock.calls;
@@ -848,8 +847,7 @@ describe("memory-graphiti plugin", () => {
 
     const result = await beforeHook({
       prompt: "What does Mark do for work?",
-      ctx: { sessionKey: "sess-recall-1" },
-    });
+    }, { sessionKey: "sess-recall-1" });
 
     // Should return prepended context
     expect(result?.prependContext).toContain("<relevant-memories>");

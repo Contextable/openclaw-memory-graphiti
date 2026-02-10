@@ -253,6 +253,56 @@ All commands are under `graphiti-mem`:
 | `graphiti-mem add-member <group-id> <subject-id>` | Add a subject to a group. Options: `--type` |
 | `graphiti-mem import` | Import workspace markdown files into Graphiti. Options: `--workspace`, `--include-sessions`, `--session-dir`, `--group`, `--dry-run` |
 
+### Standalone CLI
+
+For development and testing, commands can be run directly without a full OpenClaw gateway:
+
+```bash
+# Via npm script
+npm run cli -- status
+npm run cli -- search "some query"
+npm run cli -- import --workspace /path/to/files --dry-run
+
+# Via npx
+npx tsx bin/graphiti-mem.ts cleanup --dry-run
+```
+
+**Configuration** is loaded from (highest priority first):
+
+1. **Environment variables** — `SPICEDB_TOKEN`, `SPICEDB_ENDPOINT`, `GRAPHITI_ENDPOINT`, or prefixed variants (`GRAPHITI_MEM_SPICEDB_TOKEN`, etc.)
+2. **JSON config file** — `--config <path>`, or auto-discovered from `./graphiti-mem.config.json` or `~/.config/graphiti-mem/config.json`
+3. **Built-in defaults** (see [Configuration Reference](#configuration-reference))
+
+Example config file (`graphiti-mem.config.json`):
+
+```json
+{
+  "spicedb": {
+    "endpoint": "localhost:50051",
+    "token": "dev_token",
+    "insecure": true
+  },
+  "graphiti": {
+    "endpoint": "http://localhost:8000",
+    "defaultGroupId": "main"
+  },
+  "subjectType": "agent",
+  "subjectId": "my-agent"
+}
+```
+
+| Environment Variable | Config Equivalent |
+|---------------------|-------------------|
+| `SPICEDB_TOKEN` | `spicedb.token` |
+| `SPICEDB_ENDPOINT` | `spicedb.endpoint` |
+| `GRAPHITI_ENDPOINT` | `graphiti.endpoint` |
+| `GRAPHITI_MEM_SPICEDB_INSECURE` | `spicedb.insecure` |
+| `GRAPHITI_MEM_DEFAULT_GROUP_ID` | `graphiti.defaultGroupId` |
+| `GRAPHITI_MEM_SUBJECT_TYPE` | `subjectType` |
+| `GRAPHITI_MEM_SUBJECT_ID` | `subjectId` |
+
+The plugin-registered CLI (`openclaw graphiti-mem ...`) remains the primary interface for end users. The standalone CLI is a developer convenience.
+
 ## Docker Compose
 
 The `docker/` directory contains a full-stack Docker Compose configuration:
@@ -394,6 +444,7 @@ OPENCLAW_LIVE_TEST=1 npm run test:e2e
 
 ```
 ├── index.ts                  # Plugin entry: tools, hooks, CLI, service
+├── cli.ts                    # Shared CLI commands (used by plugin + standalone)
 ├── config.ts                 # Config schema and validation
 ├── graphiti.ts               # Graphiti MCP HTTP client (JSON-RPC/SSE)
 ├── spicedb.ts                # SpiceDB gRPC client wrapper
@@ -402,6 +453,8 @@ OPENCLAW_LIVE_TEST=1 npm run test:e2e
 ├── schema.zed                # SpiceDB authorization schema
 ├── openclaw.plugin.json      # Plugin manifest
 ├── package.json
+├── bin/
+│   └── graphiti-mem.ts       # Standalone CLI entry point
 ├── docker/
 │   ├── docker-compose.yml    # Full infrastructure stack
 │   └── .env.example          # Environment variable template
@@ -411,6 +464,7 @@ OPENCLAW_LIVE_TEST=1 npm run test:e2e
 │   ├── dev-stop.sh           # Stop dev services
 │   └── dev-status.sh         # Check service status
 ├── index.test.ts             # Plugin integration tests
+├── cli.test.ts               # CLI module tests
 ├── authorization.test.ts     # Authorization unit tests
 ├── search.test.ts            # Search unit tests
 ├── graphiti.test.ts          # Graphiti client tests
