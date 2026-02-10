@@ -68,6 +68,7 @@ const personUnauthorized: Subject = { type: "person", id: "e2e-outsider" };
 describeLive("e2e: Graphiti + SpiceDB integration", () => {
   let graphiti: GraphitiClient;
   let spicedb: SpiceDbClient;
+  let lastWriteToken: string | undefined;
   const createdEpisodeIds: string[] = [];
 
   beforeAll(async () => {
@@ -93,11 +94,13 @@ describeLive("e2e: Graphiti + SpiceDB integration", () => {
     await spicedb.writeSchema(schema);
 
     // 3. Set up authorization: agent + Mark are members of the test group
+    //    Capture ZedTokens so subsequent reads use at_least_as_fresh consistency
     await ensureGroupMembership(spicedb, TEST_GROUP, agentSubject);
     await ensureGroupMembership(spicedb, TEST_GROUP, personMark);
 
     // Also set up session group membership for the agent
-    await ensureGroupMembership(spicedb, TEST_SESSION_GROUP, agentSubject);
+    const token = await ensureGroupMembership(spicedb, TEST_SESSION_GROUP, agentSubject);
+    if (token) lastWriteToken = token;
   }, 30000);
 
   afterAll(async () => {
@@ -133,17 +136,17 @@ describeLive("e2e: Graphiti + SpiceDB integration", () => {
   // --------------------------------------------------------------------------
 
   test("agent can access the test group", async () => {
-    const groups = await lookupAuthorizedGroups(spicedb, agentSubject);
+    const groups = await lookupAuthorizedGroups(spicedb, agentSubject, lastWriteToken);
     expect(groups).toContain(TEST_GROUP);
   });
 
   test("Mark can access the test group", async () => {
-    const groups = await lookupAuthorizedGroups(spicedb, personMark);
+    const groups = await lookupAuthorizedGroups(spicedb, personMark, lastWriteToken);
     expect(groups).toContain(TEST_GROUP);
   });
 
   test("unauthorized person cannot access the test group", async () => {
-    const groups = await lookupAuthorizedGroups(spicedb, personUnauthorized);
+    const groups = await lookupAuthorizedGroups(spicedb, personUnauthorized, lastWriteToken);
     expect(groups).not.toContain(TEST_GROUP);
   });
 
@@ -165,12 +168,13 @@ describeLive("e2e: Graphiti + SpiceDB integration", () => {
     createdEpisodeIds.push(episodeResult.episode_uuid);
 
     // Write authorization relationships
-    await writeFragmentRelationships(spicedb, {
+    const writeToken = await writeFragmentRelationships(spicedb, {
       fragmentId: episodeResult.episode_uuid,
       groupId: TEST_GROUP,
       sharedBy: agentSubject,
       involves: [personMark],
     });
+    if (writeToken) lastWriteToken = writeToken;
 
     // Wait for Graphiti to process (entity extraction via OpenAI takes ~10-15s)
     await sleep(15000);
@@ -196,7 +200,7 @@ describeLive("e2e: Graphiti + SpiceDB integration", () => {
 
   test("unauthorized person gets no results for the group", async () => {
     // Outsider has no group access
-    const groups = await lookupAuthorizedGroups(spicedb, personUnauthorized);
+    const groups = await lookupAuthorizedGroups(spicedb, personUnauthorized, lastWriteToken);
     const authorizedGroupsForSearch = groups.filter((g) => g === TEST_GROUP);
 
     // Should have no access to the test group
@@ -215,11 +219,11 @@ describeLive("e2e: Graphiti + SpiceDB integration", () => {
 
   test("unauthorized person is denied write access to a group", async () => {
     // Outsider has no membership in TEST_GROUP, so contribute permission should be denied
-    const canWrite = await canWriteToGroup(spicedb, personUnauthorized, TEST_GROUP);
+    const canWrite = await canWriteToGroup(spicedb, personUnauthorized, TEST_GROUP, lastWriteToken);
     expect(canWrite).toBe(false);
 
     // Authorized agent should be allowed (was added as member in beforeAll)
-    const agentCanWrite = await canWriteToGroup(spicedb, agentSubject, TEST_GROUP);
+    const agentCanWrite = await canWriteToGroup(spicedb, agentSubject, TEST_GROUP, lastWriteToken);
     expect(agentCanWrite).toBe(true);
   });
 
@@ -239,11 +243,12 @@ describeLive("e2e: Graphiti + SpiceDB integration", () => {
     expect(episodeResult.episode_uuid).toBeDefined();
     createdEpisodeIds.push(episodeResult.episode_uuid);
 
-    await writeFragmentRelationships(spicedb, {
+    const sessionWriteToken = await writeFragmentRelationships(spicedb, {
       fragmentId: episodeResult.episode_uuid,
       groupId: TEST_SESSION_GROUP,
       sharedBy: agentSubject,
     });
+    if (sessionWriteToken) lastWriteToken = sessionWriteToken;
 
     // Wait for processing (entity extraction via OpenAI takes ~10-20s,
     // and episodes are queued per group_id so prior episodes may still be processing)
@@ -328,11 +333,12 @@ describeLive("e2e: Graphiti + SpiceDB integration", () => {
     expect(episodeResult.episode_uuid).toBeDefined();
     createdEpisodeIds.push(episodeResult.episode_uuid);
 
-    await writeFragmentRelationships(spicedb, {
+    const batchWriteToken = await writeFragmentRelationships(spicedb, {
       fragmentId: episodeResult.episode_uuid,
       groupId: TEST_GROUP,
       sharedBy: agentSubject,
     });
+    if (batchWriteToken) lastWriteToken = batchWriteToken;
 
     // Wait for entity extraction (batch episode takes longer, ~15-20s)
     await sleep(20000);
@@ -372,24 +378,25 @@ describeLive("e2e: Graphiti + SpiceDB integration", () => {
 
     const episodeId = episodeResult.episode_uuid;
 
-    await writeFragmentRelationships(spicedb, {
+    const delWriteToken = await writeFragmentRelationships(spicedb, {
       fragmentId: episodeId,
       groupId: TEST_GROUP,
       sharedBy: agentSubject,
     });
+    if (delWriteToken) lastWriteToken = delWriteToken;
 
     // Agent (who shared it) should have delete permission
-    const agentCanDelete = await canDeleteFragment(spicedb, agentSubject, episodeId);
+    const agentCanDelete = await canDeleteFragment(spicedb, agentSubject, episodeId, lastWriteToken);
     expect(agentCanDelete).toBe(true);
 
     // Outsider should NOT have delete permission
-    const outsiderCanDelete = await canDeleteFragment(spicedb, personUnauthorized, episodeId);
+    const outsiderCanDelete = await canDeleteFragment(spicedb, personUnauthorized, episodeId, lastWriteToken);
     expect(outsiderCanDelete).toBe(false);
 
     // Mark (involved but didn't share) — check permission
     // The schema says: permission delete = shared_by
     // So Mark should NOT be able to delete unless he shared it
-    const markCanDelete = await canDeleteFragment(spicedb, personMark, episodeId);
+    const markCanDelete = await canDeleteFragment(spicedb, personMark, episodeId, lastWriteToken);
     expect(markCanDelete).toBe(false);
 
     // Actually delete it

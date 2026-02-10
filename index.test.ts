@@ -12,7 +12,7 @@ vi.mock("@authzed/authzed-node", () => {
   const mockPromises = {
     writeSchema: vi.fn().mockResolvedValue({}),
     readSchema: vi.fn().mockResolvedValue({ schemaText: "" }),
-    writeRelationships: vi.fn().mockResolvedValue({}),
+    writeRelationships: vi.fn().mockResolvedValue({ writtenAt: { token: "write-token-1" } }),
     deleteRelationships: vi.fn().mockResolvedValue({ deletedAt: { token: "delete-token" } }),
     checkPermission: vi.fn().mockResolvedValue({
       permissionship: 2, // HAS_PERMISSION
@@ -42,6 +42,7 @@ vi.mock("@authzed/authzed-node", () => {
       ObjectReference: { create: vi.fn((v: unknown) => v) },
       SubjectReference: { create: vi.fn((v: unknown) => v) },
       Consistency: { create: vi.fn((v: unknown) => v) },
+      ZedToken: { create: vi.fn((v: unknown) => v) },
     },
   };
 });
@@ -145,6 +146,7 @@ describe("memory-graphiti plugin", () => {
     const mockClient = (v1.NewClient as ReturnType<typeof vi.fn>)();
     mockClient.promises.checkPermission.mockResolvedValue({ permissionship: 2 });
     mockClient.promises.lookupResources.mockResolvedValue([{ resourceObjectId: "main" }]);
+    mockClient.promises.writeRelationships.mockResolvedValue({ writtenAt: { token: "write-token-1" } });
     mockClient.promises.deleteRelationships.mockResolvedValue({ deletedAt: { token: "delete-token" } });
 
     mockApi = {
@@ -500,6 +502,43 @@ describe("memory-graphiti plugin", () => {
     expect(result.details.graphiti).toBe("connected");
     expect(result.details.spicedb).toBe("connected");
     expect(result.details.currentSessionId).toBe("none");
+  });
+
+  test("threads ZedToken from write to subsequent read for causal consistency", async () => {
+    setupGraphitiMock('{"message":"queued"}');
+
+    const { v1 } = await import("@authzed/authzed-node");
+    const mockClient = (v1.NewClient as ReturnType<typeof vi.fn>)();
+
+    const { default: plugin } = await import("./index.js");
+    plugin.register(mockApi);
+
+    // 1. Store a memory — writeRelationships returns a ZedToken
+    const storeTool = registeredTools.find((t) => t.opts?.name === "memory_store")?.tool;
+    await storeTool.execute("call-token-1", {
+      content: "Token threading test",
+      group_id: "main",
+    });
+
+    // 2. Recall memories — should pass the stored token via consistency
+    mockClient.promises.lookupResources.mockResolvedValue([{ resourceObjectId: "main" }]);
+    const nodes = [
+      { uuid: "n1", name: "Test", summary: "Test entity", group_id: "main", labels: [], created_at: "2026-01-15T00:00:00Z", attributes: {} },
+    ];
+    setupGraphitiMock(JSON.stringify({ message: "Found 1 node", nodes, facts: [] }));
+
+    const recallTool = registeredTools.find((t) => t.opts?.name === "memory_recall")?.tool;
+    await recallTool.execute("call-token-2", { query: "test" });
+
+    // Verify lookupResources was called with consistency containing the write token
+    const lookupCalls = mockClient.promises.lookupResources.mock.calls;
+    const lastLookupCall = lookupCalls[lookupCalls.length - 1][0];
+    expect(lastLookupCall.consistency).toEqual({
+      requirement: {
+        oneofKind: "atLeastAsFresh",
+        atLeastAsFresh: { token: "write-token-1" },
+      },
+    });
   });
 
   test("config rejects missing spicedb token", async () => {

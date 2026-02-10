@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- ZedToken consistency tuning: SpiceDB reads after writes now use `at_least_as_fresh` consistency with the token from the preceding write, ensuring causal consistency without the cost of `fully_consistent`; reads without a prior write use `minimize_latency` for optimal performance
+
 ### Fixed
 
 - `memory_forget` now uses filter-based `DeleteRelationships` RPC to clean up SpiceDB relationships, fixing orphaned tuples when deleting fragments stored to non-default groups or by other subjects

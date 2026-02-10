@@ -35,8 +35,24 @@ describe("lookupAuthorizedGroups", () => {
       permission: "access",
       subjectType: "agent",
       subjectId: "pi",
+      consistency: undefined,
     });
     expect(groups).toEqual(["family", "work"]);
+  });
+
+  test("passes at_least_as_fresh consistency when zedToken provided", async () => {
+    const lookupResources = vi.fn().mockResolvedValue(["family"]);
+    const spicedb = mockSpiceDb({ lookupResources });
+
+    await lookupAuthorizedGroups(spicedb, { type: "agent", id: "pi" }, "tok-abc");
+
+    expect(lookupResources).toHaveBeenCalledWith({
+      resourceType: "group",
+      permission: "access",
+      subjectType: "agent",
+      subjectId: "pi",
+      consistency: { mode: "at_least_as_fresh", token: "tok-abc" },
+    });
   });
 });
 
@@ -52,6 +68,7 @@ describe("lookupViewableFragments", () => {
       permission: "view",
       subjectType: "person",
       subjectId: "mom",
+      consistency: undefined,
     });
     expect(frags).toEqual(["frag-1", "frag-2"]);
   });
@@ -59,10 +76,10 @@ describe("lookupViewableFragments", () => {
 
 describe("writeFragmentRelationships", () => {
   test("writes source_group and shared_by relationships", async () => {
-    const writeRelationships = vi.fn().mockResolvedValue(undefined);
+    const writeRelationships = vi.fn().mockResolvedValue("write-tok-1");
     const spicedb = mockSpiceDb({ writeRelationships });
 
-    await writeFragmentRelationships(spicedb, {
+    const token = await writeFragmentRelationships(spicedb, {
       fragmentId: "ep-123",
       groupId: "family",
       sharedBy: { type: "agent", id: "pi" },
@@ -85,6 +102,7 @@ describe("writeFragmentRelationships", () => {
       subjectType: "agent",
       subjectId: "pi",
     });
+    expect(token).toBe("write-tok-1");
   });
 
   test("writes involves relationships for each involved person", async () => {
@@ -164,6 +182,7 @@ describe("canDeleteFragment", () => {
       permission: "delete",
       subjectType: "agent",
       subjectId: "pi",
+      consistency: undefined,
     });
   });
 
@@ -173,6 +192,22 @@ describe("canDeleteFragment", () => {
 
     const allowed = await canDeleteFragment(spicedb, { type: "person", id: "mom" }, "ep-123");
     expect(allowed).toBe(false);
+  });
+
+  test("uses at_least_as_fresh consistency when zedToken provided", async () => {
+    const checkPermission = vi.fn().mockResolvedValue(true);
+    const spicedb = mockSpiceDb({ checkPermission });
+
+    await canDeleteFragment(spicedb, { type: "agent", id: "pi" }, "ep-123", "tok-del");
+
+    expect(checkPermission).toHaveBeenCalledWith({
+      resourceType: "memory_fragment",
+      resourceId: "ep-123",
+      permission: "delete",
+      subjectType: "agent",
+      subjectId: "pi",
+      consistency: { mode: "at_least_as_fresh", token: "tok-del" },
+    });
   });
 });
 
@@ -190,6 +225,7 @@ describe("canWriteToGroup", () => {
       permission: "contribute",
       subjectType: "agent",
       subjectId: "pi",
+      consistency: undefined,
     });
   });
 
@@ -200,14 +236,30 @@ describe("canWriteToGroup", () => {
     const allowed = await canWriteToGroup(spicedb, { type: "person", id: "outsider" }, "family");
     expect(allowed).toBe(false);
   });
+
+  test("uses at_least_as_fresh consistency when zedToken provided", async () => {
+    const checkPermission = vi.fn().mockResolvedValue(true);
+    const spicedb = mockSpiceDb({ checkPermission });
+
+    await canWriteToGroup(spicedb, { type: "agent", id: "pi" }, "family", "tok-write");
+
+    expect(checkPermission).toHaveBeenCalledWith({
+      resourceType: "group",
+      resourceId: "family",
+      permission: "contribute",
+      subjectType: "agent",
+      subjectId: "pi",
+      consistency: { mode: "at_least_as_fresh", token: "tok-write" },
+    });
+  });
 });
 
 describe("ensureGroupMembership", () => {
-  test("writes group member relationship", async () => {
-    const writeRelationships = vi.fn().mockResolvedValue(undefined);
+  test("writes group member relationship and returns token", async () => {
+    const writeRelationships = vi.fn().mockResolvedValue("membership-tok");
     const spicedb = mockSpiceDb({ writeRelationships });
 
-    await ensureGroupMembership(spicedb, "family", { type: "person", id: "mom" });
+    const token = await ensureGroupMembership(spicedb, "family", { type: "person", id: "mom" });
 
     expect(writeRelationships).toHaveBeenCalledWith([
       {
@@ -218,5 +270,6 @@ describe("ensureGroupMembership", () => {
         subjectId: "mom",
       },
     ]);
+    expect(token).toBe("membership-tok");
   });
 });
