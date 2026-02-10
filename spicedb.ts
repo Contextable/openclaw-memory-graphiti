@@ -25,6 +25,11 @@ export type RelationshipTuple = {
   subjectId: string;
 };
 
+export type ConsistencyMode =
+  | { mode: "full" }
+  | { mode: "at_least_as_fresh"; token: string }
+  | { mode: "minimize_latency" };
+
 // ============================================================================
 // Client
 // ============================================================================
@@ -65,7 +70,7 @@ export class SpiceDbClient {
   // Relationships
   // --------------------------------------------------------------------------
 
-  async writeRelationships(tuples: RelationshipTuple[]): Promise<void> {
+  async writeRelationships(tuples: RelationshipTuple[]): Promise<string | undefined> {
     const updates = tuples.map((t) =>
       v1.RelationshipUpdate.create({
         operation: v1.RelationshipUpdate_Operation.TOUCH,
@@ -86,7 +91,8 @@ export class SpiceDbClient {
     );
 
     const request = v1.WriteRelationshipsRequest.create({ updates });
-    await this.promises.writeRelationships(request);
+    const response = await this.promises.writeRelationships(request);
+    return response.writtenAt?.token;
   }
 
   async deleteRelationships(tuples: RelationshipTuple[]): Promise<void> {
@@ -134,12 +140,32 @@ export class SpiceDbClient {
   // Permissions
   // --------------------------------------------------------------------------
 
+  private buildConsistency(mode?: ConsistencyMode) {
+    if (!mode || mode.mode === "minimize_latency") {
+      return v1.Consistency.create({
+        requirement: { oneofKind: "minimizeLatency", minimizeLatency: true },
+      });
+    }
+    if (mode.mode === "at_least_as_fresh") {
+      return v1.Consistency.create({
+        requirement: {
+          oneofKind: "atLeastAsFresh",
+          atLeastAsFresh: v1.ZedToken.create({ token: mode.token }),
+        },
+      });
+    }
+    return v1.Consistency.create({
+      requirement: { oneofKind: "fullyConsistent", fullyConsistent: true },
+    });
+  }
+
   async checkPermission(params: {
     resourceType: string;
     resourceId: string;
     permission: string;
     subjectType: string;
     subjectId: string;
+    consistency?: ConsistencyMode;
   }): Promise<boolean> {
     const request = v1.CheckPermissionRequest.create({
       resource: v1.ObjectReference.create({
@@ -153,9 +179,7 @@ export class SpiceDbClient {
           objectId: params.subjectId,
         }),
       }),
-      consistency: v1.Consistency.create({
-        requirement: { oneofKind: "fullyConsistent", fullyConsistent: true },
-      }),
+      consistency: this.buildConsistency(params.consistency),
     });
 
     const response = await this.promises.checkPermission(request);
@@ -170,6 +194,7 @@ export class SpiceDbClient {
     permission: string;
     subjectType: string;
     subjectId: string;
+    consistency?: ConsistencyMode;
   }): Promise<string[]> {
     const request = v1.LookupResourcesRequest.create({
       resourceObjectType: params.resourceType,
@@ -180,9 +205,7 @@ export class SpiceDbClient {
           objectId: params.subjectId,
         }),
       }),
-      consistency: v1.Consistency.create({
-        requirement: { oneofKind: "fullyConsistent", fullyConsistent: true },
-      }),
+      consistency: this.buildConsistency(params.consistency),
     });
 
     const results = await this.promises.lookupResources(request);

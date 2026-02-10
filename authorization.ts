@@ -7,7 +7,7 @@
  * - Checking delete permissions
  */
 
-import type { SpiceDbClient, RelationshipTuple } from "./spicedb.js";
+import type { SpiceDbClient, RelationshipTuple, ConsistencyMode } from "./spicedb.js";
 
 // ============================================================================
 // Types
@@ -26,6 +26,14 @@ export type FragmentRelationships = {
 };
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+function tokenConsistency(zedToken?: string): ConsistencyMode | undefined {
+  return zedToken ? { mode: "at_least_as_fresh", token: zedToken } : undefined;
+}
+
+// ============================================================================
 // Authorization Operations
 // ============================================================================
 
@@ -36,12 +44,14 @@ export type FragmentRelationships = {
 export async function lookupAuthorizedGroups(
   spicedb: SpiceDbClient,
   subject: Subject,
+  zedToken?: string,
 ): Promise<string[]> {
   return spicedb.lookupResources({
     resourceType: "group",
     permission: "access",
     subjectType: subject.type,
     subjectId: subject.id,
+    consistency: tokenConsistency(zedToken),
   });
 }
 
@@ -52,12 +62,14 @@ export async function lookupAuthorizedGroups(
 export async function lookupViewableFragments(
   spicedb: SpiceDbClient,
   subject: Subject,
+  zedToken?: string,
 ): Promise<string[]> {
   return spicedb.lookupResources({
     resourceType: "memory_fragment",
     permission: "view",
     subjectType: subject.type,
     subjectId: subject.id,
+    consistency: tokenConsistency(zedToken),
   });
 }
 
@@ -72,7 +84,7 @@ export async function lookupViewableFragments(
 export async function writeFragmentRelationships(
   spicedb: SpiceDbClient,
   params: FragmentRelationships,
-): Promise<void> {
+): Promise<string | undefined> {
   const tuples: RelationshipTuple[] = [
     {
       resourceType: "memory_fragment",
@@ -102,7 +114,7 @@ export async function writeFragmentRelationships(
     }
   }
 
-  await spicedb.writeRelationships(tuples);
+  return spicedb.writeRelationships(tuples);
 }
 
 /**
@@ -126,6 +138,7 @@ export async function canDeleteFragment(
   spicedb: SpiceDbClient,
   subject: Subject,
   fragmentId: string,
+  zedToken?: string,
 ): Promise<boolean> {
   return spicedb.checkPermission({
     resourceType: "memory_fragment",
@@ -133,6 +146,7 @@ export async function canDeleteFragment(
     permission: "delete",
     subjectType: subject.type,
     subjectId: subject.id,
+    consistency: tokenConsistency(zedToken),
   });
 }
 
@@ -144,6 +158,7 @@ export async function canWriteToGroup(
   spicedb: SpiceDbClient,
   subject: Subject,
   groupId: string,
+  zedToken?: string,
 ): Promise<boolean> {
   return spicedb.checkPermission({
     resourceType: "group",
@@ -151,6 +166,7 @@ export async function canWriteToGroup(
     permission: "contribute",
     subjectType: subject.type,
     subjectId: subject.id,
+    consistency: tokenConsistency(zedToken),
   });
 }
 
@@ -162,8 +178,8 @@ export async function ensureGroupMembership(
   spicedb: SpiceDbClient,
   groupId: string,
   member: Subject,
-): Promise<void> {
-  await spicedb.writeRelationships([
+): Promise<string | undefined> {
+  return spicedb.writeRelationships([
     {
       resourceType: "group",
       resourceId: groupId,

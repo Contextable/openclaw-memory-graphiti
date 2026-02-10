@@ -74,6 +74,10 @@ const memoryGraphitiPlugin = {
     // Track current session ID — updated from hook event context
     let currentSessionId: string | undefined;
 
+    // Track most recent ZedToken from SpiceDB writes for causal consistency.
+    // Reads use at_least_as_fresh(token) after own writes, minimize_latency otherwise.
+    let lastWriteToken: string | undefined;
+
     api.logger.info(
       `memory-graphiti: registered (graphiti: ${cfg.graphiti.endpoint}, spicedb: ${cfg.spicedb.endpoint})`,
     );
@@ -106,7 +110,7 @@ const memoryGraphitiPlugin = {
           };
 
           // 1. Get authorized groups for current subject
-          const authorizedGroups = await lookupAuthorizedGroups(spicedb, currentSubject);
+          const authorizedGroups = await lookupAuthorizedGroups(spicedb, currentSubject, lastWriteToken);
 
           if (authorizedGroups.length === 0) {
             return {
@@ -247,13 +251,14 @@ const memoryGraphitiPlugin = {
 
           if (isOwnSession) {
             try {
-              await ensureGroupMembership(spicedb, targetGroupId, currentSubject);
+              const token = await ensureGroupMembership(spicedb, targetGroupId, currentSubject);
+              if (token) lastWriteToken = token;
             } catch {
               api.logger.warn(`memory-graphiti: failed to ensure membership in ${targetGroupId}`);
             }
           } else {
             // All other groups (non-session AND foreign session) require write permission
-            const allowed = await canWriteToGroup(spicedb, currentSubject, targetGroupId);
+            const allowed = await canWriteToGroup(spicedb, currentSubject, targetGroupId, lastWriteToken);
             if (!allowed) {
               return {
                 content: [
@@ -284,12 +289,13 @@ const memoryGraphitiPlugin = {
             id,
           }));
 
-          await writeFragmentRelationships(spicedb, {
+          const writeToken = await writeFragmentRelationships(spicedb, {
             fragmentId,
             groupId: targetGroupId,
             sharedBy: currentSubject,
             involves: involvedSubjects,
           });
+          if (writeToken) lastWriteToken = writeToken;
 
           return {
             content: [
@@ -323,7 +329,7 @@ const memoryGraphitiPlugin = {
           const { episode_id } = params as { episode_id: string };
 
           // 1. Check delete permission
-          const allowed = await canDeleteFragment(spicedb, currentSubject, episode_id);
+          const allowed = await canDeleteFragment(spicedb, currentSubject, episode_id, lastWriteToken);
           if (!allowed) {
             return {
               content: [
@@ -341,7 +347,8 @@ const memoryGraphitiPlugin = {
 
           // 3. Clean up SpiceDB relationships (best-effort)
           try {
-            await deleteFragmentRelationships(spicedb, episode_id);
+            const deleteToken = await deleteFragmentRelationships(spicedb, episode_id);
+            if (deleteToken) lastWriteToken = deleteToken;
           } catch {
             api.logger.warn(
               `memory-graphiti: failed to clean up SpiceDB relationships for ${episode_id}`,
@@ -414,7 +421,7 @@ const memoryGraphitiPlugin = {
           .option("--limit <n>", "Max results", "10")
           .option("--scope <scope>", "Memory scope: session, long-term, all", "all")
           .action(async (query: string, opts: { limit: string; scope: string }) => {
-            const authorizedGroups = await lookupAuthorizedGroups(spicedb, currentSubject);
+            const authorizedGroups = await lookupAuthorizedGroups(spicedb, currentSubject, lastWriteToken);
             if (authorizedGroups.length === 0) {
               console.log("No accessible memory groups.");
               return;
@@ -476,7 +483,7 @@ const memoryGraphitiPlugin = {
           .command("groups")
           .description("List authorized groups for current subject")
           .action(async () => {
-            const groups = await lookupAuthorizedGroups(spicedb, currentSubject);
+            const groups = await lookupAuthorizedGroups(spicedb, currentSubject, lastWriteToken);
             if (groups.length === 0) {
               console.log("No authorized groups.");
               return;
@@ -718,7 +725,7 @@ const memoryGraphitiPlugin = {
         }
 
         try {
-          const authorizedGroups = await lookupAuthorizedGroups(spicedb, currentSubject);
+          const authorizedGroups = await lookupAuthorizedGroups(spicedb, currentSubject, lastWriteToken);
           if (authorizedGroups.length === 0) {
             return;
           }
@@ -859,12 +866,13 @@ const memoryGraphitiPlugin = {
 
           if (isOwnSession) {
             try {
-              await ensureGroupMembership(spicedb, targetGroupId, currentSubject);
+              const token = await ensureGroupMembership(spicedb, targetGroupId, currentSubject);
+              if (token) lastWriteToken = token;
             } catch {
               // Best-effort
             }
           } else {
-            const allowed = await canWriteToGroup(spicedb, currentSubject, targetGroupId);
+            const allowed = await canWriteToGroup(spicedb, currentSubject, targetGroupId, lastWriteToken);
             if (!allowed) {
               api.logger.warn(`memory-graphiti: auto-capture denied for group ${targetGroupId}`);
               return;
@@ -879,11 +887,12 @@ const memoryGraphitiPlugin = {
             custom_extraction_instructions: cfg.customInstructions,
           });
 
-          await writeFragmentRelationships(spicedb, {
+          const writeToken = await writeFragmentRelationships(spicedb, {
             fragmentId: result.episode_uuid,
             groupId: targetGroupId,
             sharedBy: currentSubject,
           });
+          if (writeToken) lastWriteToken = writeToken;
 
           api.logger.info(
             `memory-graphiti: auto-captured ${conversationLines.length} messages as batch episode to ${targetGroupId}`,
@@ -923,11 +932,12 @@ const memoryGraphitiPlugin = {
         // Ensure current subject is a member of the default group
         if (spicedbOk) {
           try {
-            await ensureGroupMembership(
+            const token = await ensureGroupMembership(
               spicedb,
               cfg.graphiti.defaultGroupId,
               currentSubject,
             );
+            if (token) lastWriteToken = token;
           } catch {
             api.logger.warn("memory-graphiti: failed to ensure default group membership");
           }
