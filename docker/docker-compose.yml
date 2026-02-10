@@ -75,7 +75,7 @@ services:
   # Graphiti MCP Server — knowledge graph API over HTTP
   # --------------------------------------------------------------------------
   graphiti-mcp:
-    image: ghcr.io/getzep/graphiti-mcp:latest
+    image: zepai/knowledge-graph-mcp:latest
     ports:
       - "${GRAPHITI_PORT:-8000}:8000"    # MCP HTTP endpoint
     environment:
