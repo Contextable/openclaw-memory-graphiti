@@ -220,6 +220,64 @@ export class SpiceDbClient {
   }
 
   // --------------------------------------------------------------------------
+  // Read Relationships
+  // --------------------------------------------------------------------------
+
+  /**
+   * Read relationships matching a filter. Returns all tuples that match the
+   * specified resource type, optional resource ID, optional relation, and
+   * optional subject filter. Used by the cleanup command to find which
+   * Graphiti episodes have SpiceDB authorization relationships.
+   */
+  async readRelationships(params: {
+    resourceType: string;
+    resourceId?: string;
+    relation?: string;
+    subjectType?: string;
+    subjectId?: string;
+    consistency?: ConsistencyMode;
+  }): Promise<RelationshipTuple[]> {
+    const filterFields: Record<string, unknown> = {
+      resourceType: params.resourceType,
+    };
+    if (params.resourceId) {
+      filterFields.optionalResourceId = params.resourceId;
+    }
+    if (params.relation) {
+      filterFields.optionalRelation = params.relation;
+    }
+    if (params.subjectType) {
+      const subjectFilter: Record<string, unknown> = {
+        subjectType: params.subjectType,
+      };
+      if (params.subjectId) {
+        subjectFilter.optionalSubjectId = params.subjectId;
+      }
+      filterFields.optionalSubjectFilter = v1.SubjectFilter.create(subjectFilter);
+    }
+
+    const request = v1.ReadRelationshipsRequest.create({
+      relationshipFilter: v1.RelationshipFilter.create(filterFields),
+      consistency: this.buildConsistency(params.consistency),
+    });
+
+    const results = await this.promises.readRelationships(request);
+    const tuples: RelationshipTuple[] = [];
+    for (const r of results) {
+      const rel = r.relationship;
+      if (!rel?.resource || !rel.subject?.object) continue;
+      tuples.push({
+        resourceType: rel.resource.objectType,
+        resourceId: rel.resource.objectId,
+        relation: rel.relation,
+        subjectType: rel.subject.object.objectType,
+        subjectId: rel.subject.object.objectId,
+      });
+    }
+    return tuples;
+  }
+
+  // --------------------------------------------------------------------------
   // Permissions
   // --------------------------------------------------------------------------
 

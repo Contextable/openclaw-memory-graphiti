@@ -49,6 +49,8 @@ export type GraphitiFact = {
 
 export type AddEpisodeResult = {
   episode_uuid: string;
+  /** Resolves to the real server-side UUID once Graphiti finishes processing. */
+  resolvedUuid: Promise<string>;
 };
 
 type JsonRpcRequest = {
@@ -73,6 +75,11 @@ export class GraphitiClient {
   private nextId = 1;
   private sessionId: string | null = null;
   private initPromise: Promise<void> | null = null;
+
+  /** Polling interval (ms) for UUID resolution after addEpisode. */
+  uuidPollIntervalMs = 2000;
+  /** Max polling attempts for UUID resolution (total wait = interval * attempts). */
+  uuidPollMaxAttempts = 15;
 
   constructor(private readonly endpoint: string) {}
 
@@ -281,7 +288,35 @@ export class GraphitiClient {
     }
 
     await this.callTool("add_memory", args);
-    return { episode_uuid: trackingUuid };
+
+    // Graphiti's add_memory queues the episode for async LLM processing and
+    // returns only a "queued" message — no UUID. We poll getEpisodes in the
+    // background to discover the real server-side UUID by name match.
+    let resolvedUuid: Promise<string>;
+    if (params.group_id) {
+      resolvedUuid = this.resolveEpisodeUuid(params.name, params.group_id);
+      resolvedUuid.catch(() => {}); // Prevent unhandled rejection if caller ignores
+    } else {
+      resolvedUuid = Promise.resolve(trackingUuid);
+    }
+
+    return { episode_uuid: trackingUuid, resolvedUuid };
+  }
+
+  private async resolveEpisodeUuid(name: string, groupId: string): Promise<string> {
+    for (let i = 0; i < this.uuidPollMaxAttempts; i++) {
+      await new Promise((r) => setTimeout(r, this.uuidPollIntervalMs));
+      try {
+        const episodes = await this.getEpisodes(groupId, 50);
+        const match = episodes.find((ep) => ep.name === name);
+        if (match) return match.uuid;
+      } catch {
+        // Retry on transient errors
+      }
+    }
+    throw new Error(
+      `Failed to resolve episode UUID for "${name}" in group "${groupId}" after ${(this.uuidPollMaxAttempts * this.uuidPollIntervalMs) / 1000}s`,
+    );
   }
 
   async getEpisodes(groupId: string, lastN: number): Promise<GraphitiEpisode[]> {
