@@ -78,6 +78,10 @@ const memoryGraphitiPlugin = {
     // Reads use at_least_as_fresh(token) after own writes, minimize_latency otherwise.
     let lastWriteToken: string | undefined;
 
+    // Map tracking UUIDs to resolvedUuid promises so memory_forget can translate
+    // a tracking UUID (from memory_store) to the real server-side UUID.
+    const pendingResolutions = new Map<string, Promise<string>>();
+
     api.logger.info(
       `memory-graphiti: registered (graphiti: ${cfg.graphiti.endpoint}, spicedb: ${cfg.spicedb.endpoint})`,
     );
@@ -281,21 +285,36 @@ const memoryGraphitiPlugin = {
             custom_extraction_instructions: cfg.customInstructions,
           });
 
-          const fragmentId = result.episode_uuid;
-
-          // 2. Write authorization relationships in SpiceDB
+          // 2. Write authorization relationships in SpiceDB (background).
+          // Graphiti processes episodes asynchronously — the real UUID isn't
+          // available immediately. resolvedUuid polls in the background and
+          // writes SpiceDB relationships once the real UUID is known, so the
+          // tool response isn't blocked.
           const involvedSubjects: Subject[] = involves.map((id) => ({
             type: "person" as const,
             id,
           }));
 
-          const writeToken = await writeFragmentRelationships(spicedb, {
-            fragmentId,
-            groupId: targetGroupId,
-            sharedBy: currentSubject,
-            involves: involvedSubjects,
+          // Chain UUID resolution → SpiceDB write, and store the promise so
+          // memory_forget can await both before checking permissions.
+          const deferredWrite = result.resolvedUuid
+            .then(async (realUuid) => {
+              const writeToken = await writeFragmentRelationships(spicedb, {
+                fragmentId: realUuid,
+                groupId: targetGroupId,
+                sharedBy: currentSubject,
+                involves: involvedSubjects,
+              });
+              if (writeToken) lastWriteToken = writeToken;
+              return realUuid;
+            });
+
+          pendingResolutions.set(result.episode_uuid, deferredWrite);
+          deferredWrite.catch((err) => {
+            api.logger.warn(
+              `memory-graphiti: deferred SpiceDB write failed for memory_store: ${err}`,
+            );
           });
-          if (writeToken) lastWriteToken = writeToken;
 
           return {
             content: [
@@ -306,7 +325,7 @@ const memoryGraphitiPlugin = {
             ],
             details: {
               action: "created",
-              episodeId: fragmentId,
+              episodeId: result.episode_uuid,
               groupId: targetGroupId,
               longTerm,
               involves,
@@ -328,8 +347,22 @@ const memoryGraphitiPlugin = {
         async execute(_toolCallId, params) {
           const { episode_id } = params as { episode_id: string };
 
+          // Resolve tracking UUID → real server-side UUID if this came
+          // from a recent memory_store call. Awaits the background
+          // resolution so permission checks use the correct UUID.
+          let effectiveId = episode_id;
+          const pending = pendingResolutions.get(episode_id);
+          if (pending) {
+            try {
+              effectiveId = await pending;
+            } catch {
+              // Resolution failed — try with original UUID
+            }
+            pendingResolutions.delete(episode_id);
+          }
+
           // 1. Check delete permission
-          const allowed = await canDeleteFragment(spicedb, currentSubject, episode_id, lastWriteToken);
+          const allowed = await canDeleteFragment(spicedb, currentSubject, effectiveId, lastWriteToken);
           if (!allowed) {
             return {
               content: [
@@ -343,11 +376,11 @@ const memoryGraphitiPlugin = {
           }
 
           // 2. Delete from Graphiti
-          await graphiti.deleteEpisode(episode_id);
+          await graphiti.deleteEpisode(effectiveId);
 
           // 3. Clean up SpiceDB relationships (best-effort)
           try {
-            const deleteToken = await deleteFragmentRelationships(spicedb, episode_id);
+            const deleteToken = await deleteFragmentRelationships(spicedb, effectiveId);
             if (deleteToken) lastWriteToken = deleteToken;
           } catch {
             api.logger.warn(
@@ -652,7 +685,9 @@ const memoryGraphitiPlugin = {
             // state if Graphiti ingestion fails partway (orphaned episodes are invisible
             // without authorization).
 
-            const pendingTuples: import("./spicedb.js").RelationshipTuple[] = [];
+            // Collect resolvedUuid promises during Phase 1 so we can await
+            // real server-side UUIDs before writing SpiceDB relationships.
+            const pendingResolutions: { resolvedUuid: Promise<string>; groupId: string; name: string }[] = [];
             const membershipGroups = new Set<string>();
 
             // Ensure agent is a member of the target workspace group
@@ -679,24 +714,12 @@ const memoryGraphitiPlugin = {
                     group_id: targetGroup,
                     source: "text",
                   });
-                  // Collect tuples for Phase 2
-                  pendingTuples.push(
-                    {
-                      resourceType: "memory_fragment",
-                      resourceId: result.episode_uuid,
-                      relation: "source_group",
-                      subjectType: "group",
-                      subjectId: targetGroup,
-                    },
-                    {
-                      resourceType: "memory_fragment",
-                      resourceId: result.episode_uuid,
-                      relation: "shared_by",
-                      subjectType: currentSubject.type,
-                      subjectId: currentSubject.id,
-                    },
-                  );
-                  console.log(`  Imported ${f} (${content.length} bytes) → episode ${result.episode_uuid}`);
+                  pendingResolutions.push({
+                    resolvedUuid: result.resolvedUuid,
+                    groupId: targetGroup,
+                    name: f,
+                  });
+                  console.log(`  Queued ${f} (${content.length} bytes) — resolving UUID in background`);
                   imported++;
                 } catch (err) {
                   console.error(`  Failed to import ${f}: ${err instanceof Error ? err.message : String(err)}`);
@@ -777,25 +800,13 @@ const memoryGraphitiPlugin = {
                       group_id: sessionGroup,
                       source: "message",
                     });
-                    // Collect tuples for Phase 2
                     membershipGroups.add(sessionGroup);
-                    pendingTuples.push(
-                      {
-                        resourceType: "memory_fragment",
-                        resourceId: result.episode_uuid,
-                        relation: "source_group",
-                        subjectType: "group",
-                        subjectId: sessionGroup,
-                      },
-                      {
-                        resourceType: "memory_fragment",
-                        resourceId: result.episode_uuid,
-                        relation: "shared_by",
-                        subjectType: currentSubject.type,
-                        subjectId: currentSubject.id,
-                      },
-                    );
-                    console.log(`  Imported ${f} (${conversationLines.length} messages) → episode ${result.episode_uuid} [group: ${sessionGroup}]`);
+                    pendingResolutions.push({
+                      resolvedUuid: result.resolvedUuid,
+                      groupId: sessionGroup,
+                      name: f,
+                    });
+                    console.log(`  Queued ${f} (${conversationLines.length} messages) — resolving UUID in background [group: ${sessionGroup}]`);
                     sessionsImported++;
                   } catch (err) {
                     console.error(`  Failed to import ${f}: ${err instanceof Error ? err.message : String(err)}`);
@@ -805,8 +816,44 @@ const memoryGraphitiPlugin = {
               }
             }
 
+            // Phase 1.5: Await real server-side UUIDs from Graphiti.
+            // The background polls started during Phase 1 run concurrently,
+            // so the total wait is max(processing time) not sum.
+            const pendingTuples: import("./spicedb.js").RelationshipTuple[] = [];
+            if (pendingResolutions.length > 0) {
+              console.log(`\nResolving ${pendingResolutions.length} episode UUIDs (waiting for Graphiti processing)...`);
+              const results = await Promise.allSettled(
+                pendingResolutions.map((p) => p.resolvedUuid),
+              );
+              for (let i = 0; i < results.length; i++) {
+                const resolution = results[i];
+                if (resolution.status === "fulfilled") {
+                  const realUuid = resolution.value;
+                  pendingTuples.push(
+                    {
+                      resourceType: "memory_fragment",
+                      resourceId: realUuid,
+                      relation: "source_group",
+                      subjectType: "group",
+                      subjectId: pendingResolutions[i].groupId,
+                    },
+                    {
+                      resourceType: "memory_fragment",
+                      resourceId: realUuid,
+                      relation: "shared_by",
+                      subjectType: currentSubject.type,
+                      subjectId: currentSubject.id,
+                    },
+                  );
+                  console.log(`  ${pendingResolutions[i].name} → ${realUuid}`);
+                } else {
+                  console.warn(`  Warning: could not resolve UUID for ${pendingResolutions[i].name} — SpiceDB linkage skipped`);
+                }
+              }
+            }
+
             // Phase 2: Bulk write all SpiceDB relationships
-            if (pendingTuples.length > 0) {
+            if (pendingTuples.length > 0 || membershipGroups.size > 0) {
               // Add group membership tuples for session groups
               for (const groupId of membershipGroups) {
                 pendingTuples.push({
@@ -1012,12 +1059,21 @@ const memoryGraphitiPlugin = {
             custom_extraction_instructions: cfg.customInstructions,
           });
 
-          const writeToken = await writeFragmentRelationships(spicedb, {
-            fragmentId: result.episode_uuid,
-            groupId: targetGroupId,
-            sharedBy: currentSubject,
-          });
-          if (writeToken) lastWriteToken = writeToken;
+          // SpiceDB writes use the real UUID once Graphiti finishes processing
+          result.resolvedUuid
+            .then(async (realUuid) => {
+              const writeToken = await writeFragmentRelationships(spicedb, {
+                fragmentId: realUuid,
+                groupId: targetGroupId,
+                sharedBy: currentSubject,
+              });
+              if (writeToken) lastWriteToken = writeToken;
+            })
+            .catch((err) => {
+              api.logger.warn(
+                `memory-graphiti: deferred SpiceDB write (auto-capture) failed: ${err}`,
+              );
+            });
 
           api.logger.info(
             `memory-graphiti: auto-captured ${conversationLines.length} messages as batch episode to ${targetGroupId}`,

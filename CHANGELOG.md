@@ -11,6 +11,7 @@
 
 ### Fixed
 
+- **UUID mismatch between Graphiti and SpiceDB**: `addEpisode` now polls `getEpisodes` in the background to resolve the real server-side UUID assigned by Graphiti (the MCP `add_memory` tool only returns a "queued" message, not the UUID). SpiceDB authorization relationships are written with the real UUID once resolved, fixing broken fragment-level authorization (`memory_forget`, `canDeleteFragment`, `lookupViewableFragments`). The polling is non-blocking — `memory_store` and auto-capture return immediately while SpiceDB writes happen in the background; `graphiti-mem import` awaits all UUIDs before Phase 2 bulk write.
 - `memory_forget` now uses filter-based `DeleteRelationships` RPC to clean up SpiceDB relationships, fixing orphaned tuples when deleting fragments stored to non-default groups or by other subjects
 
 ## 0.1.2 - 2026-02-09

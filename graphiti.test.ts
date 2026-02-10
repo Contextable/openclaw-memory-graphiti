@@ -46,6 +46,9 @@ describe("GraphitiClient", () => {
 
   beforeEach(() => {
     client = new GraphitiClient("http://localhost:8000");
+    // Disable background UUID polling by default — tests that need it re-enable
+    client.uuidPollMaxAttempts = 0;
+    client.uuidPollIntervalMs = 10;
     vi.restoreAllMocks();
   });
 
@@ -307,6 +310,115 @@ describe("GraphitiClient", () => {
     const body = JSON.parse(fetchMock.mock.calls[2][1]!.body as string);
     expect(body.params.arguments.uuid).toBeUndefined();
     expect(body.params.arguments.reference_time).toBeUndefined();
+  });
+
+  test("addEpisode returns resolvedUuid promise", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    mockInit(fetchMock);
+    fetchMock.mockResolvedValueOnce(
+      sseResponse({
+        jsonrpc: "2.0",
+        id: 2,
+        result: { content: [{ type: "text", text: '{"message":"queued"}' }], isError: false },
+      }),
+    );
+
+    const result = await client.addEpisode({
+      name: "test",
+      episode_body: "content",
+      group_id: "main",
+    });
+
+    // resolvedUuid should be a promise
+    expect(result.resolvedUuid).toBeInstanceOf(Promise);
+    // With polling disabled (maxAttempts=0), it rejects
+    await expect(result.resolvedUuid).rejects.toThrow("Failed to resolve episode UUID");
+  });
+
+  test("resolvedUuid resolves to real server-side UUID via polling", async () => {
+    // Re-enable polling for this test
+    client.uuidPollMaxAttempts = 3;
+    client.uuidPollIntervalMs = 10;
+
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    mockInit(fetchMock);
+
+    // 1st fetch after init: add_memory response
+    fetchMock.mockResolvedValueOnce(
+      sseResponse({
+        jsonrpc: "2.0",
+        id: 2,
+        result: { content: [{ type: "text", text: '{"message":"queued"}' }], isError: false },
+      }),
+    );
+
+    // 2nd fetch: getEpisodes poll — episode not ready yet
+    fetchMock.mockResolvedValueOnce(
+      sseResponse({
+        jsonrpc: "2.0",
+        id: 3,
+        result: { content: [{ type: "text", text: '{"episodes":[]}' }], isError: false },
+      }),
+    );
+
+    // 3rd fetch: getEpisodes poll — episode now available with real UUID
+    fetchMock.mockResolvedValueOnce(
+      sseResponse({
+        jsonrpc: "2.0",
+        id: 4,
+        result: {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              episodes: [{
+                uuid: "real-server-uuid-123",
+                name: "my_episode",
+                content: "content",
+                source_description: "test",
+                group_id: "main",
+                created_at: "2026-02-10T00:00:00Z",
+              }],
+            }),
+          }],
+          isError: false,
+        },
+      }),
+    );
+
+    const result = await client.addEpisode({
+      name: "my_episode",
+      episode_body: "content",
+      group_id: "main",
+    });
+
+    // Tracking UUID is immediate
+    expect(result.episode_uuid).toMatch(/^[0-9a-f-]{36}$/);
+
+    // resolvedUuid polls and finds the real UUID
+    const realUuid = await result.resolvedUuid;
+    expect(realUuid).toBe("real-server-uuid-123");
+    expect(realUuid).not.toBe(result.episode_uuid);
+  });
+
+  test("resolvedUuid resolves immediately when no group_id", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    mockInit(fetchMock);
+    fetchMock.mockResolvedValueOnce(
+      sseResponse({
+        jsonrpc: "2.0",
+        id: 2,
+        result: { content: [{ type: "text", text: '{"message":"queued"}' }], isError: false },
+      }),
+    );
+
+    const result = await client.addEpisode({
+      name: "test",
+      episode_body: "content",
+      // No group_id — can't poll, so resolvedUuid = trackingUuid
+    });
+
+    const resolved = await result.resolvedUuid;
+    expect(resolved).toBe(result.episode_uuid);
   });
 
   test("getEpisodes sends group_ids and max_episodes", async () => {

@@ -509,7 +509,7 @@ describe("memory-graphiti plugin", () => {
     expect(result.details.currentSessionId).toBe("none");
   });
 
-  test("threads ZedToken from write to subsequent read for causal consistency", async () => {
+  test("threads ZedToken from synchronous write to subsequent read for causal consistency", async () => {
     setupGraphitiMock('{"message":"queued"}');
 
     const { v1 } = await import("@authzed/authzed-node");
@@ -518,12 +518,10 @@ describe("memory-graphiti plugin", () => {
     const { default: plugin } = await import("./index.js");
     plugin.register(mockApi);
 
-    // 1. Store a memory — writeRelationships returns a ZedToken
-    const storeTool = registeredTools.find((t) => t.opts?.name === "memory_store")?.tool;
-    await storeTool.execute("call-token-1", {
-      content: "Token threading test",
-      group_id: "main",
-    });
+    // 1. Start the service — ensureGroupMembership writes a group membership
+    //    relationship synchronously, setting lastWriteToken.
+    const service = registeredServices[0];
+    await service.start();
 
     // 2. Recall memories — should pass the stored token via consistency
     mockClient.promises.lookupResources.mockResolvedValue([{ resourceObjectId: "main" }]);
