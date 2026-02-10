@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `memory_forget` now uses filter-based `DeleteRelationships` RPC to clean up SpiceDB relationships, fixing orphaned tuples when deleting fragments stored to non-default groups or by other subjects
+
 ## 0.1.2 - 2026-02-09
 
 ### Added

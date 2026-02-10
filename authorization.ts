@@ -107,43 +107,16 @@ export async function writeFragmentRelationships(
 
 /**
  * Remove all authorization relationships for a memory fragment.
- * Called when deleting a memory.
+ * Uses filter-based deletion — no need to know the group, sharer, or involved parties.
  */
 export async function deleteFragmentRelationships(
   spicedb: SpiceDbClient,
   fragmentId: string,
-  params: FragmentRelationships,
-): Promise<void> {
-  const tuples: RelationshipTuple[] = [
-    {
-      resourceType: "memory_fragment",
-      resourceId: fragmentId,
-      relation: "source_group",
-      subjectType: "group",
-      subjectId: params.groupId,
-    },
-    {
-      resourceType: "memory_fragment",
-      resourceId: fragmentId,
-      relation: "shared_by",
-      subjectType: params.sharedBy.type,
-      subjectId: params.sharedBy.id,
-    },
-  ];
-
-  if (params.involves) {
-    for (const person of params.involves) {
-      tuples.push({
-        resourceType: "memory_fragment",
-        resourceId: fragmentId,
-        relation: "involves",
-        subjectType: person.type,
-        subjectId: person.id,
-      });
-    }
-  }
-
-  await spicedb.deleteRelationships(tuples);
+): Promise<string | undefined> {
+  return spicedb.deleteRelationshipsByFilter({
+    resourceType: "memory_fragment",
+    resourceId: fragmentId,
+  });
 }
 
 /**
