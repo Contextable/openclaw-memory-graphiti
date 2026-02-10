@@ -83,6 +83,10 @@ export class GraphitiClient {
 
   constructor(private readonly endpoint: string) {}
 
+  private get mcpUrl(): string {
+    return `${this.endpoint}/mcp`;
+  }
+
   // --------------------------------------------------------------------------
   // MCP Session Lifecycle
   // --------------------------------------------------------------------------
@@ -107,7 +111,7 @@ export class GraphitiClient {
       },
     };
 
-    const response = await fetch(`${this.endpoint}/mcp`, {
+    const response = await fetch(this.mcpUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -135,7 +139,7 @@ export class GraphitiClient {
     if (this.sessionId) {
       headers["mcp-session-id"] = this.sessionId;
     }
-    await fetch(`${this.endpoint}/mcp`, {
+    await fetch(this.mcpUrl, {
       method: "POST",
       headers,
       body: JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }),
@@ -145,7 +149,7 @@ export class GraphitiClient {
   async close(): Promise<void> {
     if (this.sessionId) {
       try {
-        await fetch(`${this.endpoint}/mcp`, {
+        await fetch(this.mcpUrl, {
           method: "DELETE",
           headers: { "mcp-session-id": this.sessionId },
         });
@@ -179,7 +183,7 @@ export class GraphitiClient {
       headers["mcp-session-id"] = this.sessionId;
     }
 
-    const response = await fetch(`${this.endpoint}/mcp`, {
+    const response = await fetch(this.mcpUrl, {
       method: "POST",
       headers,
       body: JSON.stringify(request),
