@@ -341,11 +341,7 @@ const memoryGraphitiPlugin = {
 
           // 3. Clean up SpiceDB relationships (best-effort)
           try {
-            await deleteFragmentRelationships(spicedb, episode_id, {
-              fragmentId: episode_id,
-              groupId: cfg.graphiti.defaultGroupId,
-              sharedBy: currentSubject,
-            });
+            await deleteFragmentRelationships(spicedb, episode_id);
           } catch {
             api.logger.warn(
               `memory-graphiti: failed to clean up SpiceDB relationships for ${episode_id}`,

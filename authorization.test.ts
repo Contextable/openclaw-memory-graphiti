@@ -16,6 +16,7 @@ function mockSpiceDb(overrides?: Partial<SpiceDbClient>): SpiceDbClient {
     readSchema: vi.fn().mockResolvedValue(""),
     writeRelationships: vi.fn().mockResolvedValue(undefined),
     deleteRelationships: vi.fn().mockResolvedValue(undefined),
+    deleteRelationshipsByFilter: vi.fn().mockResolvedValue("delete-token-1"),
     checkPermission: vi.fn().mockResolvedValue(true),
     lookupResources: vi.fn().mockResolvedValue([]),
     ...overrides,
@@ -121,19 +122,31 @@ describe("writeFragmentRelationships", () => {
 });
 
 describe("deleteFragmentRelationships", () => {
-  test("deletes matching relationships", async () => {
-    const deleteRelationships = vi.fn().mockResolvedValue(undefined);
-    const spicedb = mockSpiceDb({ deleteRelationships });
+  test("uses filter-based deletion for all fragment relationships", async () => {
+    const deleteRelationshipsByFilter = vi.fn().mockResolvedValue("delete-token-1");
+    const spicedb = mockSpiceDb({ deleteRelationshipsByFilter });
 
-    await deleteFragmentRelationships(spicedb, "ep-123", {
-      fragmentId: "ep-123",
-      groupId: "family",
-      sharedBy: { type: "agent", id: "pi" },
+    const token = await deleteFragmentRelationships(spicedb, "ep-123");
+
+    expect(deleteRelationshipsByFilter).toHaveBeenCalledTimes(1);
+    expect(deleteRelationshipsByFilter).toHaveBeenCalledWith({
+      resourceType: "memory_fragment",
+      resourceId: "ep-123",
     });
+    expect(token).toBe("delete-token-1");
+  });
 
-    expect(deleteRelationships).toHaveBeenCalledTimes(1);
-    const tuples = deleteRelationships.mock.calls[0][0];
-    expect(tuples).toHaveLength(2);
+  test("works regardless of which group the fragment was stored to", async () => {
+    const deleteRelationshipsByFilter = vi.fn().mockResolvedValue("token-2");
+    const spicedb = mockSpiceDb({ deleteRelationshipsByFilter });
+
+    // No group or sharedBy needed — filter-based delete handles any fragment
+    await deleteFragmentRelationships(spicedb, "ep-non-default-group");
+
+    expect(deleteRelationshipsByFilter).toHaveBeenCalledWith({
+      resourceType: "memory_fragment",
+      resourceId: "ep-non-default-group",
+    });
   });
 });
 

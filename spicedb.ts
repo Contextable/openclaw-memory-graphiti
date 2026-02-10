@@ -2,7 +2,7 @@
  * SpiceDB Client Wrapper
  *
  * Wraps @authzed/authzed-node for authorization operations:
- * WriteSchema, WriteRelationships, LookupResources, CheckPermission.
+ * WriteSchema, WriteRelationships, DeleteRelationships, LookupResources, CheckPermission.
  */
 
 import { v1 } from "@authzed/authzed-node";
@@ -111,6 +111,23 @@ export class SpiceDbClient {
 
     const request = v1.WriteRelationshipsRequest.create({ updates });
     await this.promises.writeRelationships(request);
+  }
+
+  async deleteRelationshipsByFilter(params: {
+    resourceType: string;
+    resourceId: string;
+    relation?: string;
+  }): Promise<string | undefined> {
+    const request = v1.DeleteRelationshipsRequest.create({
+      relationshipFilter: v1.RelationshipFilter.create({
+        resourceType: params.resourceType,
+        optionalResourceId: params.resourceId,
+        ...(params.relation ? { optionalRelation: params.relation } : {}),
+      }),
+    });
+
+    const response = await this.promises.deleteRelationships(request);
+    return response.deletedAt?.token;
   }
 
   // --------------------------------------------------------------------------

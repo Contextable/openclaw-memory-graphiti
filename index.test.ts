@@ -13,6 +13,7 @@ vi.mock("@authzed/authzed-node", () => {
     writeSchema: vi.fn().mockResolvedValue({}),
     readSchema: vi.fn().mockResolvedValue({ schemaText: "" }),
     writeRelationships: vi.fn().mockResolvedValue({}),
+    deleteRelationships: vi.fn().mockResolvedValue({ deletedAt: { token: "delete-token" } }),
     checkPermission: vi.fn().mockResolvedValue({
       permissionship: 2, // HAS_PERMISSION
     }),
@@ -30,6 +31,8 @@ vi.mock("@authzed/authzed-node", () => {
       WriteSchemaRequest: { create: vi.fn((v: unknown) => v) },
       ReadSchemaRequest: { create: vi.fn((v: unknown) => v) },
       WriteRelationshipsRequest: { create: vi.fn((v: unknown) => v) },
+      DeleteRelationshipsRequest: { create: vi.fn((v: unknown) => v) },
+      RelationshipFilter: { create: vi.fn((v: unknown) => v) },
       CheckPermissionRequest: { create: vi.fn((v: unknown) => v) },
       CheckPermissionResponse_Permissionship: { HAS_PERMISSION: 2 },
       LookupResourcesRequest: { create: vi.fn((v: unknown) => v) },
@@ -142,6 +145,7 @@ describe("memory-graphiti plugin", () => {
     const mockClient = (v1.NewClient as ReturnType<typeof vi.fn>)();
     mockClient.promises.checkPermission.mockResolvedValue({ permissionship: 2 });
     mockClient.promises.lookupResources.mockResolvedValue([{ resourceObjectId: "main" }]);
+    mockClient.promises.deleteRelationships.mockResolvedValue({ deletedAt: { token: "delete-token" } });
 
     mockApi = {
       id: "memory-graphiti",

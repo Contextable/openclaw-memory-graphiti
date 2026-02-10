@@ -396,11 +396,7 @@ describeLive("e2e: Graphiti + SpiceDB integration", () => {
     await graphiti.deleteEpisode(episodeId);
 
     // Clean up SpiceDB relationships
-    await deleteFragmentRelationships(spicedb, episodeId, {
-      fragmentId: episodeId,
-      groupId: TEST_GROUP,
-      sharedBy: agentSubject,
-    });
+    await deleteFragmentRelationships(spicedb, episodeId);
 
     // Remove from cleanup list since we already deleted it
     const idx = createdEpisodeIds.indexOf(episodeId);
