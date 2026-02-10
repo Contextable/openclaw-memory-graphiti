@@ -44,9 +44,8 @@
     "access": "public"
   },
   "openclaw": {
-    "extensions": [
-      "./index.ts"
-    ],
+    "_extensions_note": "Intentionally empty — explicit entries cause idHint to derive from the npm package name rather than the directory name, producing a mismatch with the manifest id. Previously: [\"./index.ts\"]",
+    "extensions": [],
     "install": {
       "npmSpec": "@contextableai/openclaw-memory-graphiti",
       "localPath": "extensions/memory-graphiti",
