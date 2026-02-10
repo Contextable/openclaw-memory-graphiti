@@ -21,6 +21,7 @@ vi.mock("@authzed/authzed-node", () => {
     lookupResources: vi.fn().mockResolvedValue([
       { resourceObjectId: "main" },
     ]),
+    readRelationships: vi.fn().mockResolvedValue([]),
   };
 
   return {
@@ -37,6 +38,8 @@ vi.mock("@authzed/authzed-node", () => {
       CheckPermissionRequest: { create: vi.fn((v: unknown) => v) },
       CheckPermissionResponse_Permissionship: { HAS_PERMISSION: 2 },
       LookupResourcesRequest: { create: vi.fn((v: unknown) => v) },
+      ReadRelationshipsRequest: { create: vi.fn((v: unknown) => v) },
+      SubjectFilter: { create: vi.fn((v: unknown) => v) },
       RelationshipUpdate: { create: vi.fn((v: unknown) => v) },
       RelationshipUpdate_Operation: { TOUCH: 1, DELETE: 2 },
       Relationship: { create: vi.fn((v: unknown) => v) },
@@ -639,6 +642,195 @@ describe("memory-graphiti plugin", () => {
     expect(episodeBody).not.toContain("<relevant-memories>");
     // Should only contain the assistant message
     expect(episodeBody).toContain("Assistant: Mark is doing great!");
+  });
+
+  // ==========================================================================
+  // CLI: cleanup command
+  // ==========================================================================
+
+  /**
+   * Create a mock Commander program that captures subcommand action handlers.
+   * The plugin calls: program.command("graphiti-mem").description(...) then
+   * mem.command("cleanup").option(...).action(handler).
+   */
+  function createMockProgram() {
+    // oxlint-disable-next-line typescript/no-explicit-any
+    const actions: Record<string, any> = {};
+
+    // oxlint-disable-next-line typescript/no-explicit-any
+    function makeChainable(commandName?: string): any {
+      // oxlint-disable-next-line typescript/no-explicit-any
+      const self: Record<string, any> = {};
+      self.description = () => self;
+      self.argument = () => self;
+      self.option = () => self;
+      self.command = (name: string) => makeChainable(name);
+      // oxlint-disable-next-line typescript/no-explicit-any
+      self.action = (fn: any) => {
+        if (commandName) actions[commandName] = fn;
+        return self;
+      };
+      return self;
+    }
+
+    return { program: makeChainable(), actions };
+  }
+
+  test("cleanup command reports no episodes when group is empty", async () => {
+    // Mock Graphiti to return empty episodes list
+    setupGraphitiMock(JSON.stringify({ episodes: [] }));
+
+    const { default: plugin } = await import("./index.js");
+    plugin.register(mockApi);
+
+    const { program, actions } = createMockProgram();
+    registeredClis[0].registrar({ program });
+
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await actions["cleanup"]({ group: "main", last: "100", delete: false, dryRun: false });
+
+    expect(consoleSpy.mock.calls.some((c) => c[0].includes("No episodes found"))).toBe(true);
+    consoleSpy.mockRestore();
+  });
+
+  test("cleanup command identifies orphaned episodes", async () => {
+    // Mock Graphiti to return episodes, some with and some without SpiceDB relationships
+    const episodes = [
+      { uuid: "ep-1", name: "ep1", content: "content1", source_description: "test", group_id: "main", created_at: "2026-02-09T00:00:00Z" },
+      { uuid: "ep-2", name: "ep2", content: "content2", source_description: "test", group_id: "main", created_at: "2026-02-09T00:00:00Z" },
+      { uuid: "ep-3", name: "ep3", content: "content3", source_description: "test", group_id: "main", created_at: "2026-02-10T00:00:00Z" },
+    ];
+    setupGraphitiMock(JSON.stringify({ episodes }));
+
+    // Mock SpiceDB readRelationships to only return ep-1 (ep-2 and ep-3 are orphans)
+    const { v1 } = await import("@authzed/authzed-node");
+    const mockClient = (v1.NewClient as ReturnType<typeof vi.fn>)();
+    mockClient.promises.readRelationships.mockResolvedValue([
+      {
+        relationship: {
+          resource: { objectType: "memory_fragment", objectId: "ep-1" },
+          relation: "source_group",
+          subject: { object: { objectType: "group", objectId: "main" } },
+        },
+      },
+    ]);
+
+    const { default: plugin } = await import("./index.js");
+    plugin.register(mockApi);
+
+    const { program, actions } = createMockProgram();
+    registeredClis[0].registrar({ program });
+
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await actions["cleanup"]({ group: "main", last: "100", delete: false, dryRun: false });
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    expect(output).toContain("Found 2 orphaned episodes");
+    expect(output).toContain("ep-2");
+    expect(output).toContain("ep-3");
+    expect(output).not.toContain("ep-1");
+    expect(output).toContain("Run with --delete");
+    consoleSpy.mockRestore();
+  });
+
+  test("cleanup command reports no orphans when all episodes have relationships", async () => {
+    const episodes = [
+      { uuid: "ep-1", name: "ep1", content: "c", source_description: "t", group_id: "main", created_at: "2026-02-09T00:00:00Z" },
+    ];
+    setupGraphitiMock(JSON.stringify({ episodes }));
+
+    const { v1 } = await import("@authzed/authzed-node");
+    const mockClient = (v1.NewClient as ReturnType<typeof vi.fn>)();
+    mockClient.promises.readRelationships.mockResolvedValue([
+      {
+        relationship: {
+          resource: { objectType: "memory_fragment", objectId: "ep-1" },
+          relation: "source_group",
+          subject: { object: { objectType: "group", objectId: "main" } },
+        },
+      },
+    ]);
+
+    const { default: plugin } = await import("./index.js");
+    plugin.register(mockApi);
+
+    const { program, actions } = createMockProgram();
+    registeredClis[0].registrar({ program });
+
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await actions["cleanup"]({ group: "main", last: "100", delete: false, dryRun: false });
+
+    expect(consoleSpy.mock.calls.some((c) => c[0].includes("No orphans found"))).toBe(true);
+    consoleSpy.mockRestore();
+  });
+
+  test("cleanup command deletes orphans with --delete flag", async () => {
+    const episodes = [
+      { uuid: "ep-orphan-1", name: "ep1", content: "c", source_description: "t", group_id: "main", created_at: "2026-02-09T00:00:00Z" },
+      { uuid: "ep-orphan-2", name: "ep2", content: "c", source_description: "t", group_id: "main", created_at: "2026-02-10T00:00:00Z" },
+    ];
+    setupGraphitiMock(JSON.stringify({ episodes }));
+
+    // No SpiceDB relationships — both are orphans
+    const { v1 } = await import("@authzed/authzed-node");
+    const mockClient = (v1.NewClient as ReturnType<typeof vi.fn>)();
+    mockClient.promises.readRelationships.mockResolvedValue([]);
+
+    const { default: plugin } = await import("./index.js");
+    plugin.register(mockApi);
+
+    const { program, actions } = createMockProgram();
+    registeredClis[0].registrar({ program });
+
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await actions["cleanup"]({ group: "main", last: "100", delete: true, dryRun: false });
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    expect(output).toContain("Found 2 orphaned episodes");
+    expect(output).toContain("Deleted 2 orphaned episodes");
+
+    // Verify delete_episode was called for each orphan
+    const deleteCalls = mockFetch.mock.calls.filter((call) => {
+      if (!call[1]?.body) return false;
+      const body = JSON.parse(call[1].body as string);
+      return body.params?.name === "delete_episode";
+    });
+    expect(deleteCalls).toHaveLength(2);
+    consoleSpy.mockRestore();
+  });
+
+  test("cleanup command with --dry-run does not delete", async () => {
+    const episodes = [
+      { uuid: "ep-dry", name: "ep1", content: "c", source_description: "t", group_id: "main", created_at: "2026-02-09T00:00:00Z" },
+    ];
+    setupGraphitiMock(JSON.stringify({ episodes }));
+
+    const { v1 } = await import("@authzed/authzed-node");
+    const mockClient = (v1.NewClient as ReturnType<typeof vi.fn>)();
+    mockClient.promises.readRelationships.mockResolvedValue([]);
+
+    const { default: plugin } = await import("./index.js");
+    plugin.register(mockApi);
+
+    const { program, actions } = createMockProgram();
+    registeredClis[0].registrar({ program });
+
+    const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    await actions["cleanup"]({ group: "main", last: "10", delete: true, dryRun: true });
+
+    const output = consoleSpy.mock.calls.map((c) => c[0]).join("\n");
+    expect(output).toContain("Found 1 orphaned episodes");
+    expect(output).toContain("Run with --delete");
+    expect(output).not.toContain("Deleted");
+
+    // Verify delete_episode was NOT called
+    const deleteCalls = mockFetch.mock.calls.filter((call) => {
+      if (!call[1]?.body) return false;
+      const body = JSON.parse(call[1].body as string);
+      return body.params?.name === "delete_episode";
+    });
+    expect(deleteCalls).toHaveLength(0);
+    consoleSpy.mockRestore();
   });
 
   test("auto-recall performs dual search with session and long-term groups", async () => {

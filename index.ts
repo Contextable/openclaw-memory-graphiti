@@ -510,6 +510,67 @@ const memoryGraphitiPlugin = {
           });
 
         mem
+          .command("cleanup")
+          .description("Find and optionally delete orphaned Graphiti episodes (no SpiceDB relationships)")
+          .option("--group <id>", "Group ID to check", cfg.graphiti.defaultGroupId)
+          .option("--last <n>", "Number of recent episodes to check", "100")
+          .option("--delete", "Delete orphaned episodes", false)
+          .option("--dry-run", "Preview what would be cleaned up", false)
+          .action(async (opts: { group: string; last: string; delete: boolean; dryRun: boolean }) => {
+            // 1. Fetch episodes from Graphiti for this group
+            const episodes = await graphiti.getEpisodes(opts.group, parseInt(opts.last));
+
+            if (episodes.length === 0) {
+              console.log(`No episodes found in group "${opts.group}".`);
+              return;
+            }
+
+            // 2. Cross-reference with SpiceDB: find all memory_fragment source_group
+            //    relationships pointing to this group
+            const relationships = await spicedb.readRelationships({
+              resourceType: "memory_fragment",
+              relation: "source_group",
+              subjectType: "group",
+              subjectId: opts.group,
+            });
+
+            const authorizedUuids = new Set(relationships.map((r) => r.resourceId));
+
+            // 3. Identify orphans — episodes without a source_group relationship
+            const orphans = episodes.filter((ep) => !authorizedUuids.has(ep.uuid));
+
+            if (orphans.length === 0) {
+              console.log(
+                `Checked ${episodes.length} episodes in group "${opts.group}". No orphans found.`,
+              );
+              return;
+            }
+
+            console.log(`Found ${orphans.length} orphaned episodes:`);
+            for (const ep of orphans) {
+              console.log(`  ${ep.uuid} (created ${ep.created_at}, no SpiceDB relationships)`);
+            }
+
+            // 4. Delete if requested (and not dry-run)
+            if (opts.delete && !opts.dryRun) {
+              let deleted = 0;
+              for (const ep of orphans) {
+                try {
+                  await graphiti.deleteEpisode(ep.uuid);
+                  deleted++;
+                } catch (err) {
+                  console.error(
+                    `  Failed to delete ${ep.uuid}: ${err instanceof Error ? err.message : String(err)}`,
+                  );
+                }
+              }
+              console.log(`Deleted ${deleted} orphaned episodes.`);
+            } else {
+              console.log(`\nRun with --delete to remove these episodes.`);
+            }
+          });
+
+        mem
           .command("import")
           .description("Import workspace markdown files (and optionally session transcripts) into Graphiti")
           .option("--workspace <path>", "Workspace directory", join(homedir(), ".openclaw", "workspace"))
