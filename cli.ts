@@ -45,14 +45,10 @@ export type CliContext = {
 // Command Registration
 // ============================================================================
 
-export function registerCommands(parent: Command, ctx: CliContext): void {
+export function registerCommands(cmd: Command, ctx: CliContext): void {
   const { graphiti, spicedb, cfg, currentSubject, getLastWriteToken } = ctx;
 
-  const mem = parent
-    .command("graphiti-mem")
-    .description("Graphiti + SpiceDB memory plugin commands");
-
-  mem
+  cmd
     .command("search")
     .description("Search memories with authorization")
     .argument("<query>", "Search query")
@@ -80,7 +76,7 @@ export function registerCommands(parent: Command, ctx: CliContext): void {
       console.log(JSON.stringify(results, null, 2));
     });
 
-  mem
+  cmd
     .command("episodes")
     .description("List recent episodes")
     .option("--last <n>", "Number of episodes", "10")
@@ -90,7 +86,7 @@ export function registerCommands(parent: Command, ctx: CliContext): void {
       console.log(JSON.stringify(episodes, null, 2));
     });
 
-  mem
+  cmd
     .command("status")
     .description("Check SpiceDB + Graphiti health")
     .action(async () => {
@@ -107,7 +103,7 @@ export function registerCommands(parent: Command, ctx: CliContext): void {
       console.log(`SpiceDB:      ${spicedbOk ? "OK" : "UNREACHABLE"} (${cfg.spicedb.endpoint})`);
     });
 
-  mem
+  cmd
     .command("schema-write")
     .description("Write/update SpiceDB authorization schema")
     .action(async () => {
@@ -117,7 +113,7 @@ export function registerCommands(parent: Command, ctx: CliContext): void {
       console.log("SpiceDB schema written successfully.");
     });
 
-  mem
+  cmd
     .command("groups")
     .description("List authorized groups for current subject")
     .action(async () => {
@@ -132,7 +128,7 @@ export function registerCommands(parent: Command, ctx: CliContext): void {
       }
     });
 
-  mem
+  cmd
     .command("add-member")
     .description("Add a subject to a group")
     .argument("<group-id>", "Group ID")
@@ -147,7 +143,7 @@ export function registerCommands(parent: Command, ctx: CliContext): void {
       console.log(`Added ${subjectType}:${subjectId} to group:${groupId}`);
     });
 
-  mem
+  cmd
     .command("cleanup")
     .description("Find and optionally delete orphaned Graphiti episodes (no SpiceDB relationships)")
     .option("--group <id>", "Group ID to check", cfg.graphiti.defaultGroupId)
@@ -208,7 +204,7 @@ export function registerCommands(parent: Command, ctx: CliContext): void {
       }
     });
 
-  mem
+  cmd
     .command("import")
     .description("Import workspace markdown files (and optionally session transcripts) into Graphiti")
     .option("--workspace <path>", "Workspace directory", join(homedir(), ".openclaw", "workspace"))
@@ -297,7 +293,7 @@ export function registerCommands(parent: Command, ctx: CliContext): void {
 
       // Ensure agent is a member of the target workspace group
       if (importWorkspace) {
-        membershipGroups.add(targetGroup);
+        cmdbershipGroups.add(targetGroup);
       }
 
       // Phase 1a: Import workspace files to Graphiti
@@ -405,7 +401,7 @@ export function registerCommands(parent: Command, ctx: CliContext): void {
                 group_id: sessionGroup,
                 source: "message",
               });
-              membershipGroups.add(sessionGroup);
+              cmdbershipGroups.add(sessionGroup);
               pendingResolutions.push({
                 resolvedUuid: result.resolvedUuid,
                 groupId: sessionGroup,

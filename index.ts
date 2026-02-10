@@ -442,7 +442,10 @@ const memoryGraphitiPlugin = {
 
     api.registerCli(
       ({ program }) => {
-        registerCommands(program, {
+        const mem = program
+          .command("graphiti-mem")
+          .description("Graphiti + SpiceDB memory plugin commands");
+        registerCommands(mem, {
           graphiti,
           spicedb,
           cfg,

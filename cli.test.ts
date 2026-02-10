@@ -65,24 +65,21 @@ function createMockContext(): CliContext {
 // ============================================================================
 
 describe("registerCommands", () => {
-  test("registers graphiti-mem parent and all 8 subcommands", () => {
+  test("registers all 8 subcommands on the passed-in command", () => {
     const { program, commands } = createMockProgram();
     const ctx = createMockContext();
 
     registerCommands(program, ctx);
 
-    // First command is the parent "graphiti-mem", followed by 8 subcommands
-    expect(commands[0]).toBe("graphiti-mem");
-    const subcommands = commands.slice(1);
-    expect(subcommands).toContain("search");
-    expect(subcommands).toContain("episodes");
-    expect(subcommands).toContain("status");
-    expect(subcommands).toContain("schema-write");
-    expect(subcommands).toContain("groups");
-    expect(subcommands).toContain("add-member");
-    expect(subcommands).toContain("cleanup");
-    expect(subcommands).toContain("import");
-    expect(subcommands).toHaveLength(8);
+    expect(commands).toContain("search");
+    expect(commands).toContain("episodes");
+    expect(commands).toContain("status");
+    expect(commands).toContain("schema-write");
+    expect(commands).toContain("groups");
+    expect(commands).toContain("add-member");
+    expect(commands).toContain("cleanup");
+    expect(commands).toContain("import");
+    expect(commands).toHaveLength(8);
   });
 
   test("registers action handlers for all subcommands", () => {
