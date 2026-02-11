@@ -1,5 +1,5 @@
 {
-  "id": "memory-graphiti",
+  "id": "openclaw-memory-graphiti",
   "kind": "memory",
   "uiHints": {
     "spicedb.endpoint": {

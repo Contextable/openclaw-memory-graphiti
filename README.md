@@ -346,16 +346,16 @@ When running inside Docker Compose, use service hostnames in the plugin config:
 
 ### Selecting the Memory Slot
 
-OpenClaw has an exclusive `memory` slot — only one memory plugin is active at a time. To use memory-graphiti, set the slot in your OpenClaw config (`~/.openclaw/openclaw.json`):
+OpenClaw has an exclusive `memory` slot — only one memory plugin is active at a time. To use openclaw-memory-graphiti, set the slot in your OpenClaw config (`~/.openclaw/openclaw.json`):
 
 ```json
 {
   "plugins": {
     "slots": {
-      "memory": "memory-graphiti"
+      "memory": "openclaw-memory-graphiti"
     },
     "entries": {
-      "memory-graphiti": {
+      "openclaw-memory-graphiti": {
         "enabled": true,
         "config": {
           "spicedb": {
@@ -378,7 +378,7 @@ OpenClaw has an exclusive `memory` slot — only one memory plugin is active at 
 }
 ```
 
-The plugin must be discoverable — either symlinked into `extensions/memory-graphiti` in the OpenClaw installation, or loaded via `plugins.load.paths`.
+The plugin must be discoverable — either symlinked into `extensions/openclaw-memory-graphiti` in the OpenClaw installation, or loaded via `plugins.load.paths`.
 
 ### Initialization
 
@@ -410,7 +410,7 @@ Workspace files are imported to the configured `defaultGroupId`. Session transcr
 
 ### Session Logging
 
-OpenClaw's JSONL session logging is always-on core behavior — memory-graphiti does not replace it. The plugin augments session context by:
+OpenClaw's JSONL session logging is always-on core behavior — openclaw-memory-graphiti does not replace it. The plugin augments session context by:
 
 - **Auto-capture**: Extracting entities and facts from conversation turns into the knowledge graph (`agent_end` hook)
 - **Auto-recall**: Injecting relevant memories into the agent's context before each turn (`before_agent_start` hook)

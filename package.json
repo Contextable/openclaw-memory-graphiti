@@ -1,6 +1,6 @@
 {
   "name": "@contextableai/openclaw-memory-graphiti",
-  "version": "0.2.1",
+  "version": "0.2.3",
   "description": "OpenClaw two-layer memory plugin: SpiceDB authorization + Graphiti knowledge graph",
   "type": "module",
   "license": "MIT",
@@ -50,11 +50,10 @@
     "access": "public"
   },
   "openclaw": {
-    "_extensions_note": "Intentionally empty — explicit entries cause idHint to derive from the npm package name rather than the directory name, producing a mismatch with the manifest id. Previously: [\"./index.ts\"]",
-    "extensions": [],
+    "extensions": ["./index.ts"],
     "install": {
       "npmSpec": "@contextableai/openclaw-memory-graphiti",
-      "localPath": "extensions/memory-graphiti",
+      "localPath": "extensions/openclaw-memory-graphiti",
       "defaultChoice": "npm"
     }
   }

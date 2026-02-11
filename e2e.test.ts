@@ -7,10 +7,10 @@
  * Prerequisites:
  *   1. Set OPENAI_API_KEY in your environment (Graphiti needs it for LLM extraction)
  *   2. Start containers:
- *        docker compose -f extensions/memory-graphiti/docker/docker-compose.yml up -d
+ *        docker compose -f extensions/openclaw-memory-graphiti/docker/docker-compose.yml up -d
  *   3. Wait for health checks to pass (~30s)
  *   4. Run:
- *        OPENCLAW_LIVE_TEST=1 npx vitest run extensions/memory-graphiti/e2e.test.ts
+ *        OPENCLAW_LIVE_TEST=1 npx vitest run extensions/openclaw-memory-graphiti/e2e.test.ts
  *
  * Environment variables:
  *   OPENAI_API_KEY       — Required. OpenAI API key for Graphiti entity extraction.
@@ -84,7 +84,7 @@ describeLive("e2e: Graphiti + SpiceDB integration", () => {
     if (!graphitiOk) {
       throw new Error(
         `Graphiti MCP server unreachable at ${GRAPHITI_ENDPOINT}. ` +
-        "Start containers with: docker compose -f extensions/memory-graphiti/docker/docker-compose.yml up -d",
+        "Start containers with: docker compose -f extensions/openclaw-memory-graphiti/docker/docker-compose.yml up -d",
       );
     }
 
@@ -419,7 +419,7 @@ describeLive("e2e: Graphiti + SpiceDB integration", () => {
   test("plugin registers and tools execute against live services", async () => {
     const { default: memoryPlugin } = await import("./index.js");
 
-    expect(memoryPlugin.id).toBe("memory-graphiti");
+    expect(memoryPlugin.id).toBe("openclaw-memory-graphiti");
 
     // oxlint-disable-next-line typescript/no-explicit-any
     const registeredTools: any[] = [];
@@ -428,7 +428,7 @@ describeLive("e2e: Graphiti + SpiceDB integration", () => {
     const logs: string[] = [];
 
     const liveApi = {
-      id: "memory-graphiti",
+      id: "openclaw-memory-graphiti",
       name: "Memory (Graphiti + SpiceDB)",
       source: "test",
       config: {},

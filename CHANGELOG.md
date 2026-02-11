@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.3 - 2026-02-11
+
+### Fixed
+
+- **npm install fails with "openclaw.extensions is empty"**: Renamed plugin id from `memory-graphiti` to `openclaw-memory-graphiti` so it matches the idHint derived from the npm package name (`@contextableai/openclaw-memory-graphiti`). This allows restoring `openclaw.extensions: ["./index.ts"]` in package.json — the previous workaround of emptying the array caused the installer to reject the package. Updated all references: manifest, plugin registration, service id, log prefixes, config error messages, test expectations, path references (`extensions/openclaw-memory-graphiti`), and documentation.
+
 ## 0.2.1 - 2026-02-11
 
 ### Fixed
