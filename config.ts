@@ -55,7 +55,7 @@ function assertAllowedKeys(value: Record<string, unknown>, allowed: string[], la
 export const graphitiMemoryConfigSchema = {
   parse(value: unknown): GraphitiMemoryConfig {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error("memory-graphiti config required");
+      throw new Error("openclaw-memory-graphiti config required");
     }
     const cfg = value as Record<string, unknown>;
     assertAllowedKeys(
@@ -64,7 +64,7 @@ export const graphitiMemoryConfigSchema = {
         "spicedb", "graphiti", "subjectType", "subjectId",
         "autoCapture", "autoRecall", "customInstructions", "maxCaptureMessages",
       ],
-      "memory-graphiti config",
+      "openclaw-memory-graphiti config",
     );
 
     // SpiceDB config

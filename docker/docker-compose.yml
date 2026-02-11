@@ -1,4 +1,4 @@
-# memory-graphiti infrastructure: FalkorDB + Graphiti MCP + PostgreSQL + SpiceDB
+# openclaw-memory-graphiti infrastructure: FalkorDB + Graphiti MCP + PostgreSQL + SpiceDB
 #
 # Usage:
 #   cp .env.example .env        # Fill in OPENAI_API_KEY at minimum

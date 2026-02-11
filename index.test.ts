@@ -120,7 +120,7 @@ function setupGraphitiMock(textPayload = '{"message":"ok"}') {
 // Tests
 // ============================================================================
 
-describe("memory-graphiti plugin", () => {
+describe("openclaw-memory-graphiti plugin", () => {
   // oxlint-disable-next-line typescript/no-explicit-any
   let registeredTools: any[];
   // oxlint-disable-next-line typescript/no-explicit-any
@@ -155,7 +155,7 @@ describe("memory-graphiti plugin", () => {
     mockClient.promises.deleteRelationships.mockResolvedValue({ deletedAt: { token: "delete-token" } });
 
     mockApi = {
-      id: "memory-graphiti",
+      id: "openclaw-memory-graphiti",
       name: "Memory (Graphiti + SpiceDB)",
       source: "test",
       config: {},
@@ -203,7 +203,7 @@ describe("memory-graphiti plugin", () => {
   test("plugin exports correct metadata", async () => {
     const { default: plugin } = await import("./index.js");
 
-    expect(plugin.id).toBe("memory-graphiti");
+    expect(plugin.id).toBe("openclaw-memory-graphiti");
     expect(plugin.name).toBe("Memory (Graphiti + SpiceDB)");
     expect(plugin.kind).toBe("memory");
     expect(plugin.configSchema).toBeDefined();
@@ -226,7 +226,7 @@ describe("memory-graphiti plugin", () => {
     expect(registeredClis[0].opts).toEqual({ commands: ["graphiti-mem"] });
 
     expect(registeredServices).toHaveLength(1);
-    expect(registeredServices[0].id).toBe("memory-graphiti");
+    expect(registeredServices[0].id).toBe("openclaw-memory-graphiti");
   });
 
   test("registers hooks when autoRecall and autoCapture enabled", async () => {

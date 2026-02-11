@@ -53,7 +53,7 @@ function isSessionGroup(groupId: string): boolean {
 // ============================================================================
 
 const memoryGraphitiPlugin = {
-  id: "memory-graphiti",
+  id: "openclaw-memory-graphiti",
   name: "Memory (Graphiti + SpiceDB)",
   description: "Two-layer memory: SpiceDB authorization + Graphiti knowledge graph",
   kind: "memory" as const,
@@ -80,7 +80,7 @@ const memoryGraphitiPlugin = {
     let lastWriteToken: string | undefined;
 
     api.logger.info(
-      `memory-graphiti: registered (graphiti: ${cfg.graphiti.endpoint}, spicedb: ${cfg.spicedb.endpoint})`,
+      `openclaw-memory-graphiti: registered (graphiti: ${cfg.graphiti.endpoint}, spicedb: ${cfg.spicedb.endpoint})`,
     );
 
     // ========================================================================
@@ -268,7 +268,7 @@ const memoryGraphitiPlugin = {
               const token = await ensureGroupMembership(spicedb, targetGroupId, currentSubject);
               if (token) lastWriteToken = token;
             } catch {
-              api.logger.warn(`memory-graphiti: failed to ensure membership in ${targetGroupId}`);
+              api.logger.warn(`openclaw-memory-graphiti: failed to ensure membership in ${targetGroupId}`);
             }
           } else {
             // All other groups (non-session AND foreign session) require write permission
@@ -318,7 +318,7 @@ const memoryGraphitiPlugin = {
             })
             .catch((err) => {
               api.logger.warn(
-                `memory-graphiti: deferred SpiceDB write failed for memory_store: ${err}`,
+                `openclaw-memory-graphiti: deferred SpiceDB write failed for memory_store: ${err}`,
               );
             });
 
@@ -555,14 +555,14 @@ const memoryGraphitiPlugin = {
 
           const memoryContext = formatDualResults(longTermResults, sessionResults);
           api.logger.info?.(
-            `memory-graphiti: injecting ${totalCount} memories (${longTermResults.length} long-term, ${sessionResults.length} session)`,
+            `openclaw-memory-graphiti: injecting ${totalCount} memories (${longTermResults.length} long-term, ${sessionResults.length} session)`,
           );
 
           return {
             prependContext: `${toolHint}\n\n<relevant-memories>\nThe following memories from the knowledge graph may be relevant:\n${memoryContext}\n</relevant-memories>`,
           };
         } catch (err) {
-          api.logger.warn(`memory-graphiti: recall failed: ${String(err)}`);
+          api.logger.warn(`openclaw-memory-graphiti: recall failed: ${String(err)}`);
         }
       });
     }
@@ -652,7 +652,7 @@ const memoryGraphitiPlugin = {
           } else {
             const allowed = await canWriteToGroup(spicedb, currentSubject, targetGroupId, lastWriteToken);
             if (!allowed) {
-              api.logger.warn(`memory-graphiti: auto-capture denied for group ${targetGroupId}`);
+              api.logger.warn(`openclaw-memory-graphiti: auto-capture denied for group ${targetGroupId}`);
               return;
             }
           }
@@ -677,15 +677,15 @@ const memoryGraphitiPlugin = {
             })
             .catch((err) => {
               api.logger.warn(
-                `memory-graphiti: deferred SpiceDB write (auto-capture) failed: ${err}`,
+                `openclaw-memory-graphiti: deferred SpiceDB write (auto-capture) failed: ${err}`,
               );
             });
 
           api.logger.info(
-            `memory-graphiti: auto-captured ${conversationLines.length} messages as batch episode to ${targetGroupId}`,
+            `openclaw-memory-graphiti: auto-captured ${conversationLines.length} messages as batch episode to ${targetGroupId}`,
           );
         } catch (err) {
-          api.logger.warn(`memory-graphiti: capture failed: ${String(err)}`);
+          api.logger.warn(`openclaw-memory-graphiti: capture failed: ${String(err)}`);
         }
       });
     }
@@ -695,7 +695,7 @@ const memoryGraphitiPlugin = {
     // ========================================================================
 
     api.registerService({
-      id: "memory-graphiti",
+      id: "openclaw-memory-graphiti",
       async start() {
         // Verify connectivity on startup
         const graphitiOk = await graphiti.healthCheck();
@@ -706,11 +706,11 @@ const memoryGraphitiPlugin = {
 
           // Auto-write schema if SpiceDB has no schema yet
           if (!existing || !existing.includes("memory_fragment")) {
-            api.logger.info("memory-graphiti: writing SpiceDB schema (first run)");
+            api.logger.info("openclaw-memory-graphiti: writing SpiceDB schema (first run)");
             const schemaPath = join(dirname(fileURLToPath(import.meta.url)), "schema.zed");
             const schema = readFileSync(schemaPath, "utf-8");
             await spicedb.writeSchema(schema);
-            api.logger.info("memory-graphiti: SpiceDB schema written successfully");
+            api.logger.info("openclaw-memory-graphiti: SpiceDB schema written successfully");
           }
         } catch {
           // Will be retried on first use
@@ -726,16 +726,16 @@ const memoryGraphitiPlugin = {
             );
             if (token) lastWriteToken = token;
           } catch {
-            api.logger.warn("memory-graphiti: failed to ensure default group membership");
+            api.logger.warn("openclaw-memory-graphiti: failed to ensure default group membership");
           }
         }
 
         api.logger.info(
-          `memory-graphiti: initialized (graphiti: ${graphitiOk ? "OK" : "UNREACHABLE"}, spicedb: ${spicedbOk ? "OK" : "UNREACHABLE"})`,
+          `openclaw-memory-graphiti: initialized (graphiti: ${graphitiOk ? "OK" : "UNREACHABLE"}, spicedb: ${spicedbOk ? "OK" : "UNREACHABLE"})`,
         );
       },
       stop() {
-        api.logger.info("memory-graphiti: stopped");
+        api.logger.info("openclaw-memory-graphiti: stopped");
       },
     });
   },

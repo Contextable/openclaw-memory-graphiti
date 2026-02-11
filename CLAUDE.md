@@ -1,4 +1,4 @@
-# CLAUDE.md — @openclaw/memory-graphiti
+# CLAUDE.md — @contextableai/openclaw-memory-graphiti
 
 ## Project Overview
 
