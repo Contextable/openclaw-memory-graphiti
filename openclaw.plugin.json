@@ -80,8 +80,7 @@
           "endpoint": { "type": "string" },
           "token": { "type": "string" },
           "insecure": { "type": "boolean" }
-        },
-        "required": ["token"]
+        }
       },
       "graphiti": {
         "type": "object",
@@ -99,7 +98,6 @@
       "autoRecall": { "type": "boolean" },
       "customInstructions": { "type": "string" },
       "maxCaptureMessages": { "type": "integer", "minimum": 1, "maximum": 50 }
-    },
-    "required": ["spicedb"]
+    }
   }
 }

@@ -1,4 +1,7 @@
 import { describe, test, expect, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { graphitiMemoryConfigSchema } from "./config.js";
 
 describe("graphitiMemoryConfigSchema", () => {
@@ -195,5 +198,75 @@ describe("graphitiMemoryConfigSchema", () => {
 
     expect(config.graphiti.uuidPollIntervalMs).toBe(3000);
     expect(config.graphiti.uuidPollMaxAttempts).toBe(30);
+  });
+});
+
+// ============================================================================
+// openclaw.plugin.json — install-time JSON Schema validation
+//
+// OpenClaw's installer validates plugin config against the JSON Schema in
+// openclaw.plugin.json BEFORE the TypeScript parse() runs. These tests ensure
+// both layers accept the empty config: {} that the installer writes.
+// ============================================================================
+
+describe("openclaw.plugin.json configSchema (install-time validation)", () => {
+  const manifestPath = join(dirname(fileURLToPath(import.meta.url)), "openclaw.plugin.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+  const jsonSchema = manifest.configSchema;
+
+  test("manifest is valid JSON with configSchema", () => {
+    expect(jsonSchema).toBeDefined();
+    expect(jsonSchema.type).toBe("object");
+    expect(jsonSchema.properties).toBeDefined();
+  });
+
+  test("top-level configSchema has no required fields", () => {
+    // The installer writes config: {} — any top-level "required" will reject it
+    expect(jsonSchema.required).toBeUndefined();
+  });
+
+  test("spicedb sub-schema has no required fields", () => {
+    // Even if spicedb is provided as {}, no fields within should be required at install time
+    const spicedbSchema = jsonSchema.properties?.spicedb;
+    expect(spicedbSchema).toBeDefined();
+    expect(spicedbSchema.required).toBeUndefined();
+  });
+
+  test("graphiti sub-schema has no required fields", () => {
+    const graphitiSchema = jsonSchema.properties?.graphiti;
+    expect(graphitiSchema).toBeDefined();
+    expect(graphitiSchema.required).toBeUndefined();
+  });
+
+  test("no sub-schema anywhere has required fields", () => {
+    // Walk the entire schema tree to catch any "required" we might miss
+    const findRequired = (obj: unknown, path: string): string[] => {
+      if (!obj || typeof obj !== "object") return [];
+      const o = obj as Record<string, unknown>;
+      const found: string[] = [];
+      if (Array.isArray(o.required) && o.required.length > 0) {
+        found.push(`${path}.required = ${JSON.stringify(o.required)}`);
+      }
+      if (o.properties && typeof o.properties === "object") {
+        for (const [key, val] of Object.entries(o.properties as Record<string, unknown>)) {
+          found.push(...findRequired(val, `${path}.properties.${key}`));
+        }
+      }
+      return found;
+    };
+
+    const violations = findRequired(jsonSchema, "configSchema");
+    expect(violations).toEqual([]);
+  });
+
+  test("TypeScript parse() accepts empty config (what installer writes)", () => {
+    // This is the exact config the installer creates:
+    //   plugins.entries.openclaw-memory-graphiti.config = {}
+    expect(() => graphitiMemoryConfigSchema.parse({})).not.toThrow();
+  });
+
+  test("TypeScript parse() accepts config with empty spicedb object", () => {
+    // Installer might also write { spicedb: {} } if user partially fills it
+    expect(() => graphitiMemoryConfigSchema.parse({ spicedb: {} })).not.toThrow();
   });
 });
