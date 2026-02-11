@@ -1,6 +1,6 @@
 {
   "name": "@contextableai/openclaw-memory-graphiti",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "OpenClaw two-layer memory plugin: SpiceDB authorization + Graphiti knowledge graph",
   "type": "module",
   "license": "MIT",
