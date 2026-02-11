@@ -417,8 +417,41 @@ const memoryGraphitiPlugin = {
             pendingResolutions.delete(episode_id!);
           }
 
-          // 1. Check delete permission
-          const allowed = await canDeleteFragment(spicedb, currentSubject, effectiveId, lastWriteToken);
+          // 1. Check delete permission (primary: fragment-level)
+          let allowed = await canDeleteFragment(spicedb, currentSubject, effectiveId, lastWriteToken);
+
+          if (!allowed) {
+            // Fallback for orphaned episodes whose deferred SpiceDB write
+            // failed (UUID resolution timeout, transient error, or pre-#25
+            // colon bug). If the fragment has NO relationships at all, fall
+            // back to group-level auth — matching the fact deletion model.
+            const rels = await spicedb.readRelationships({
+              resourceType: "memory_fragment",
+              resourceId: effectiveId,
+            });
+
+            if (rels.length === 0) {
+              // No SpiceDB relationships → search authorized groups for this episode
+              const groups = await lookupAuthorizedGroups(spicedb, currentSubject, lastWriteToken);
+              const groupSearches = await Promise.all(
+                groups.map(async (groupId) => {
+                  try {
+                    const episodes = await graphiti.getEpisodes(groupId, 100);
+                    return episodes.some((ep) => ep.uuid === effectiveId) ? groupId : null;
+                  } catch {
+                    return null;
+                  }
+                }),
+              );
+              const matchedGroup = groupSearches.find((g) => g !== null);
+              if (matchedGroup) {
+                allowed = await canWriteToGroup(spicedb, currentSubject, matchedGroup, lastWriteToken);
+              }
+            }
+            // If rels.length > 0 but canDeleteFragment was false,
+            // it's a genuine denial (different subject owns it).
+          }
+
           if (!allowed) {
             return {
               content: [
