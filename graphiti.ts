@@ -6,7 +6,8 @@
  * session ID tracking, and SSE response parsing.
  *
  * Wraps core tools: add_memory, search_nodes, search_memory_facts,
- * get_episodes, delete_episode, get_status.
+ * get_episodes, delete_episode, get_status, get_entity_edge,
+ * delete_entity_edge, clear_graph.
  */
 
 import { randomUUID } from "node:crypto";
@@ -340,6 +341,7 @@ export class GraphitiClient {
     group_id?: string;
     group_ids?: string[];
     limit?: number;
+    entity_types?: string[];
   }): Promise<GraphitiNode[]> {
     const args: Record<string, unknown> = {
       query: params.query,
@@ -351,6 +353,9 @@ export class GraphitiClient {
     if (params.limit !== undefined) {
       args.max_nodes = params.limit;
     }
+    if (params.entity_types && params.entity_types.length > 0) {
+      args.entity_types = params.entity_types;
+    }
 
     const result = await this.callTool("search_nodes", args);
     return parseToolResult<GraphitiNode[]>(result, "nodes");
@@ -361,6 +366,7 @@ export class GraphitiClient {
     group_id?: string;
     group_ids?: string[];
     limit?: number;
+    center_node_uuid?: string;
     /** @deprecated No longer supported by the Graphiti MCP server */
     created_after?: string;
   }): Promise<GraphitiFact[]> {
@@ -374,9 +380,33 @@ export class GraphitiClient {
     if (params.limit !== undefined) {
       args.max_facts = params.limit;
     }
+    if (params.center_node_uuid) {
+      args.center_node_uuid = params.center_node_uuid;
+    }
 
     const result = await this.callTool("search_memory_facts", args);
     return parseToolResult<GraphitiFact[]>(result, "facts");
+  }
+
+  // --------------------------------------------------------------------------
+  // Entity Edge Operations
+  // --------------------------------------------------------------------------
+
+  async getEntityEdge(uuid: string): Promise<GraphitiFact> {
+    const result = await this.callTool("get_entity_edge", { uuid });
+    return parseJsonResult<GraphitiFact>(result);
+  }
+
+  async deleteEntityEdge(uuid: string): Promise<void> {
+    await this.callTool("delete_entity_edge", { uuid });
+  }
+
+  async clearGraph(groupIds?: string[]): Promise<void> {
+    const args: Record<string, unknown> = {};
+    if (groupIds && groupIds.length > 0) {
+      args.group_ids = groupIds;
+    }
+    await this.callTool("clear_graph", args);
   }
 }
 

@@ -104,12 +104,24 @@ const memoryGraphitiPlugin = {
               { description: "Memory scope: 'session' (current session only), 'long-term' (persistent), or 'all' (both). Default: 'all'" },
             ),
           ),
+          entity_types: Type.Optional(
+            Type.Array(Type.String(), {
+              description: "Filter by entity type (e.g., 'Preference', 'Organization', 'Procedure')",
+            }),
+          ),
+          center_node_uuid: Type.Optional(
+            Type.String({
+              description: "UUID of an entity node to center the fact search around",
+            }),
+          ),
         }),
         async execute(_toolCallId, params) {
-          const { query, limit = 10, scope = "all" } = params as {
+          const { query, limit = 10, scope = "all", entity_types, center_node_uuid } = params as {
             query: string;
             limit?: number;
             scope?: "session" | "long-term" | "all";
+            entity_types?: string[];
+            center_node_uuid?: string;
           };
 
           // 1. Get authorized groups for current subject
@@ -152,12 +164,13 @@ const memoryGraphitiPlugin = {
           }
 
           // 3. Parallel search across groups
+          const searchOpts = { entityTypes: entity_types, centerNodeUuid: center_node_uuid };
           const [longTermResults, rawSessionResults] = await Promise.all([
             longTermGroups.length > 0
-              ? searchAuthorizedMemories(graphiti, { query, groupIds: longTermGroups, limit })
+              ? searchAuthorizedMemories(graphiti, { query, groupIds: longTermGroups, limit, ...searchOpts })
               : Promise.resolve([]),
             sessionGroups.length > 0
-              ? searchAuthorizedMemories(graphiti, { query, groupIds: sessionGroups, limit })
+              ? searchAuthorizedMemories(graphiti, { query, groupIds: sessionGroups, limit, ...searchOpts })
               : Promise.resolve([]),
           ]);
 
