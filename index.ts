@@ -731,7 +731,7 @@ const memoryGraphitiPlugin = {
           spicedbOk = true;
 
           // Auto-write schema if SpiceDB has no schema yet
-          if (!existing || !existing.includes("memory_group")) {
+          if (!existing || !existing.includes("memory_fragment")) {
             api.logger.info("memory-graphiti: writing SpiceDB schema (first run)");
             const schemaPath = join(dirname(fileURLToPath(import.meta.url)), "schema.zed");
             const schema = readFileSync(schemaPath, "utf-8");
