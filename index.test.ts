@@ -568,11 +568,11 @@ describe("openclaw-memory-graphiti plugin", () => {
     });
   });
 
-  test("config rejects missing spicedb token", async () => {
+  test("register() rejects empty spicedb token with helpful message", async () => {
     const { default: plugin } = await import("./index.js");
 
     mockApi.pluginConfig = { spicedb: {} };
-    expect(() => plugin.register(mockApi)).toThrow("spicedb.token is required");
+    expect(() => plugin.register(mockApi)).toThrow("spicedb.token is not configured");
   });
 
   test("service start verifies connectivity", async () => {
