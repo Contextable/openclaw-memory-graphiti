@@ -205,6 +205,47 @@ export function registerCommands(cmd: Command, ctx: CliContext): void {
     });
 
   cmd
+    .command("fact")
+    .description("Get a specific fact (entity edge) by UUID")
+    .argument("<uuid>", "Fact UUID")
+    .action(async (uuid: string) => {
+      try {
+        const fact = await graphiti.getEntityEdge(uuid);
+        console.log(JSON.stringify(fact, null, 2));
+      } catch (err) {
+        console.error(`Failed to get fact ${uuid}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    });
+
+  cmd
+    .command("clear-graph")
+    .description("Clear graph data for specified groups (destructive!)")
+    .option("--group <id...>", "Group ID(s) to clear")
+    .option("--confirm", "Required safety flag to confirm the operation", false)
+    .action(async (opts: { group?: string[]; confirm: boolean }) => {
+      if (!opts.confirm) {
+        console.log("This is a destructive operation. Pass --confirm to proceed.");
+        if (opts.group && opts.group.length > 0) {
+          console.log(`Would clear graph data for groups: ${opts.group.join(", ")}`);
+        } else {
+          console.log("Would clear the default group's graph data.");
+        }
+        return;
+      }
+
+      try {
+        await graphiti.clearGraph(opts.group);
+        if (opts.group && opts.group.length > 0) {
+          console.log(`Graph data cleared for groups: ${opts.group.join(", ")}`);
+        } else {
+          console.log("Graph data cleared for default group.");
+        }
+      } catch (err) {
+        console.error(`Failed to clear graph: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    });
+
+  cmd
     .command("import")
     .description("Import workspace markdown files (and optionally session transcripts) into Graphiti")
     .option("--workspace <path>", "Workspace directory", join(homedir(), ".openclaw", "workspace"))
