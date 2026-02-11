@@ -7,6 +7,8 @@ export type GraphitiMemoryConfig = {
   graphiti: {
     endpoint: string;
     defaultGroupId: string;
+    uuidPollIntervalMs: number;
+    uuidPollMaxAttempts: number;
   };
   subjectType: "agent" | "person";
   subjectId: string;
@@ -19,6 +21,8 @@ export type GraphitiMemoryConfig = {
 const DEFAULT_SPICEDB_ENDPOINT = "localhost:50051";
 const DEFAULT_GRAPHITI_ENDPOINT = "http://localhost:8000";
 const DEFAULT_GROUP_ID = "main";
+const DEFAULT_UUID_POLL_INTERVAL_MS = 3000;
+const DEFAULT_UUID_POLL_MAX_ATTEMPTS = 30;
 const DEFAULT_SUBJECT_TYPE = "agent";
 const DEFAULT_MAX_CAPTURE_MESSAGES = 10;
 
@@ -72,7 +76,7 @@ export const graphitiMemoryConfigSchema = {
 
     // Graphiti config
     const graphiti = (cfg.graphiti as Record<string, unknown>) ?? {};
-    assertAllowedKeys(graphiti, ["endpoint", "defaultGroupId"], "graphiti config");
+    assertAllowedKeys(graphiti, ["endpoint", "defaultGroupId", "uuidPollIntervalMs", "uuidPollMaxAttempts"], "graphiti config");
 
     // Subject
     const subjectType = cfg.subjectType === "person" ? "person" : DEFAULT_SUBJECT_TYPE;
@@ -93,6 +97,14 @@ export const graphitiMemoryConfigSchema = {
           typeof graphiti.defaultGroupId === "string"
             ? graphiti.defaultGroupId
             : DEFAULT_GROUP_ID,
+        uuidPollIntervalMs:
+          typeof graphiti.uuidPollIntervalMs === "number" && graphiti.uuidPollIntervalMs > 0
+            ? graphiti.uuidPollIntervalMs
+            : DEFAULT_UUID_POLL_INTERVAL_MS,
+        uuidPollMaxAttempts:
+          typeof graphiti.uuidPollMaxAttempts === "number" && graphiti.uuidPollMaxAttempts > 0
+            ? Math.round(graphiti.uuidPollMaxAttempts)
+            : DEFAULT_UUID_POLL_MAX_ATTEMPTS,
       },
       subjectType,
       subjectId,

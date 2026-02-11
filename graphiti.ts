@@ -78,9 +78,9 @@ export class GraphitiClient {
   private initPromise: Promise<void> | null = null;
 
   /** Polling interval (ms) for UUID resolution after addEpisode. */
-  uuidPollIntervalMs = 2000;
+  uuidPollIntervalMs = 3000;
   /** Max polling attempts for UUID resolution (total wait = interval * attempts). */
-  uuidPollMaxAttempts = 15;
+  uuidPollMaxAttempts = 30;
 
   constructor(private readonly endpoint: string) {}
 
@@ -267,7 +267,7 @@ export class GraphitiClient {
     // Note: The Graphiti MCP server's uuid parameter is for re-processing
     // existing episodes, NOT for setting the UUID of new ones. We generate
     // a client-side tracking UUID instead (it won't match the server-side UUID).
-    const trackingUuid = randomUUID();
+    const trackingUuid = `tmp-${randomUUID()}`;
 
     // Prepend custom extraction instructions to episode_body since the MCP
     // server doesn't support custom_extraction_instructions as a parameter.
@@ -309,18 +309,22 @@ export class GraphitiClient {
   }
 
   private async resolveEpisodeUuid(name: string, groupId: string): Promise<string> {
+    const totalTimeoutSec = (this.uuidPollMaxAttempts * this.uuidPollIntervalMs) / 1000;
     for (let i = 0; i < this.uuidPollMaxAttempts; i++) {
       await new Promise((r) => setTimeout(r, this.uuidPollIntervalMs));
       try {
         const episodes = await this.getEpisodes(groupId, 50);
         const match = episodes.find((ep) => ep.name === name);
         if (match) return match.uuid;
-      } catch {
-        // Retry on transient errors
+      } catch (err) {
+        // Log transient errors to aid debugging
+        console.warn(
+          `[graphiti] UUID poll ${i + 1}/${this.uuidPollMaxAttempts} for "${name}" in "${groupId}" failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
     throw new Error(
-      `Failed to resolve episode UUID for "${name}" in group "${groupId}" after ${(this.uuidPollMaxAttempts * this.uuidPollIntervalMs) / 1000}s`,
+      `Failed to resolve episode UUID for "${name}" in group "${groupId}" after ${totalTimeoutSec}s — episode not yet visible in get_episodes (Graphiti LLM processing may still be running)`,
     );
   }
 

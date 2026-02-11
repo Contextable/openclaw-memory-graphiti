@@ -126,6 +126,8 @@ try {
 }
 
 const graphiti = new GraphitiClient(cfg.graphiti.endpoint);
+graphiti.uuidPollIntervalMs = cfg.graphiti.uuidPollIntervalMs;
+graphiti.uuidPollMaxAttempts = cfg.graphiti.uuidPollMaxAttempts;
 const spicedb = new SpiceDbClient(cfg.spicedb);
 const currentSubject = { type: cfg.subjectType, id: cfg.subjectId } as const;
 

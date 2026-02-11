@@ -506,17 +506,14 @@ describeLive("e2e: Graphiti + SpiceDB integration", () => {
     expect(recallResult.details.count).toBeGreaterThanOrEqual(0);
     expect(recallResult.details.authorizedGroups).toBeDefined();
 
-    // Test memory_forget tool
+    // Test memory_forget tool — bare UUID returns error (episode deletion via CLI only)
     const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
     const forgetResult = await forgetTool.execute("e2e-forget", {
-      episode_id: storeResult.details.episodeId,
+      id: storeResult.details.episodeId,
     });
 
-    expect(forgetResult.details.action).toBe("deleted");
-
-    // Remove from cleanup list
-    const cleanupIdx = createdEpisodeIds.indexOf(storeResult.details.episodeId);
-    if (cleanupIdx >= 0) createdEpisodeIds.splice(cleanupIdx, 1);
+    expect(forgetResult.details.action).toBe("error");
+    expect(forgetResult.content[0].text).toContain("Unrecognized ID format");
   }, 90000);
 });
 

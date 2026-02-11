@@ -13,6 +13,7 @@
 #   SPICEDB_DB_URI        Postgres connection URI (when SPICEDB_DATASTORE=postgres)
 #   FALKORDB_PORT         Redis port (default: 6379)
 #   GRAPHITI_PORT         HTTP port (default: 8000)
+#   EPISODE_ID_PREFIX     Prefix for Graphiti episode UUIDs (default: epi-)
 # -------------------------------------------------------------------
 set -euo pipefail
 
@@ -63,6 +64,8 @@ if is_running "$DEV_DIR/pids/falkordb.pid"; then
   echo "==> FalkorDB already running (pid $(cat "$DEV_DIR/pids/falkordb.pid"))"
 else
   echo "==> Starting FalkorDB on port $FALKORDB_PORT..."
+  # Redis 8.x requires a valid locale; default to C.utf8 if LANG is unset
+  export LC_ALL="${LC_ALL:-C.utf8}"
   redis-server \
     --loadmodule "$DEV_DIR/lib/falkordb.so" \
     --port "$FALKORDB_PORT" \
@@ -190,6 +193,7 @@ else
   # Set environment for Graphiti
   export OPENAI_API_KEY="${OPENAI_API_KEY:-}"
   export FALKORDB_URI="redis://localhost:$FALKORDB_PORT"
+  export EPISODE_ID_PREFIX="${EPISODE_ID_PREFIX:-epi-}"
 
   cd "$GRAPHITI_DIR"
   uv run main.py \

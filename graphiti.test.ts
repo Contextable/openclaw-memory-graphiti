@@ -175,7 +175,7 @@ describe("GraphitiClient", () => {
 
     // UUID is generated client-side
     expect(result.episode_uuid).toBeDefined();
-    expect(result.episode_uuid).toMatch(/^[0-9a-f-]{36}$/);
+    expect(result.episode_uuid).toMatch(/^tmp-[0-9a-f-]{36}$/);
 
     // Tool call is the 3rd fetch (after init + notif)
     const call = fetchMock.mock.calls[2];
@@ -210,7 +210,7 @@ describe("GraphitiClient", () => {
 
     // Client generates its own tracking UUID, ignores provided one
     expect(result.episode_uuid).toBeDefined();
-    expect(result.episode_uuid).toMatch(/^[0-9a-f-]{36}$/);
+    expect(result.episode_uuid).toMatch(/^tmp-[0-9a-f-]{36}$/);
     const body = JSON.parse(fetchMock.mock.calls[2][1]!.body as string);
     // UUID is NOT sent to server
     expect(body.params.arguments.uuid).toBeUndefined();
@@ -392,7 +392,7 @@ describe("GraphitiClient", () => {
     });
 
     // Tracking UUID is immediate
-    expect(result.episode_uuid).toMatch(/^[0-9a-f-]{36}$/);
+    expect(result.episode_uuid).toMatch(/^tmp-[0-9a-f-]{36}$/);
 
     // resolvedUuid polls and finds the real UUID
     const realUuid = await result.resolvedUuid;

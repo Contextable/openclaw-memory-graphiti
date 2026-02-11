@@ -286,7 +286,7 @@ describe("memory-graphiti plugin", () => {
 
     expect(result.details.action).toBe("created");
     expect(result.details.episodeId).toBeDefined();
-    expect(result.details.episodeId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(result.details.episodeId).toMatch(/^tmp-[0-9a-f-]{36}$/);
     expect(result.details.groupId).toBe("family");
     expect(result.details.longTerm).toBe(true);
 
@@ -355,17 +355,18 @@ describe("memory-graphiti plugin", () => {
     expect(result.details.groupId).toBe("session-agent-main-main");
   });
 
-  test("memory_forget tool checks permission before deleting", async () => {
-    setupGraphitiMock('{"message":"deleted"}');
+  test("memory_forget with bare UUID returns error (episode deletion not exposed to agent)", async () => {
+    setupGraphitiMock('{"message":"ok"}');
 
     const { default: plugin } = await import("./index.js");
     plugin.register(mockApi);
 
     const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
-    const result = await forgetTool.execute("call-3", { episode_id: "ep-123" });
+    const result = await forgetTool.execute("call-3", { id: "ep-123" });
 
-    expect(result.details.action).toBe("deleted");
-    expect(result.details.episodeId).toBe("ep-123");
+    expect(result.details.action).toBe("error");
+    expect(result.content[0].text).toContain("Unrecognized ID format");
+    expect(result.content[0].text).toContain("fact:");
   });
 
   test("memory_store denies write to unauthorized non-session group", async () => {
@@ -857,7 +858,7 @@ describe("memory-graphiti plugin", () => {
   // memory_forget: fact deletion
   // ==========================================================================
 
-  test("memory_forget with fact_id fetches fact, checks group write, deletes edge", async () => {
+  test("memory_forget with fact: prefix fetches fact, checks group write, deletes edge", async () => {
     const factData = {
       uuid: "fact-abc",
       fact: "Mark works at Acme",
@@ -900,10 +901,11 @@ describe("memory-graphiti plugin", () => {
     plugin.register(mockApi);
 
     const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
-    const result = await forgetTool.execute("call-fact-del", { fact_id: "fact-abc" });
+    const result = await forgetTool.execute("call-fact-del", { id: "fact:fact-abc" });
 
     expect(result.details.action).toBe("deleted");
-    expect(result.details.factId).toBe("fact-abc");
+    expect(result.details.id).toBe("fact:fact-abc");
+    expect(result.details.type).toBe("fact");
 
     // Verify get_entity_edge was called
     const getEdgeCalls = mockFetch.mock.calls.filter((call) => {
@@ -922,7 +924,7 @@ describe("memory-graphiti plugin", () => {
     expect(deleteEdgeCalls).toHaveLength(1);
   });
 
-  test("memory_forget with fact_id denies when no write permission on group", async () => {
+  test("memory_forget with fact: prefix denies when no write permission on group", async () => {
     const factData = {
       uuid: "fact-denied",
       fact: "Secret fact",
@@ -970,10 +972,10 @@ describe("memory-graphiti plugin", () => {
     plugin.register(mockApi);
 
     const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
-    const result = await forgetTool.execute("call-fact-denied", { fact_id: "fact-denied" });
+    const result = await forgetTool.execute("call-fact-denied", { id: "fact:fact-denied" });
 
     expect(result.details.action).toBe("denied");
-    expect(result.details.factId).toBe("fact-denied");
+    expect(result.details.id).toBe("fact:fact-denied");
 
     // Verify delete_entity_edge was NOT called
     const deleteEdgeCalls = mockFetch.mock.calls.filter((call) => {
@@ -984,17 +986,17 @@ describe("memory-graphiti plugin", () => {
     expect(deleteEdgeCalls).toHaveLength(0);
   });
 
-  test("memory_forget with neither episode_id nor fact_id returns error", async () => {
+  test("memory_forget with entity: prefix returns error (entities not directly deletable)", async () => {
     setupGraphitiMock();
 
     const { default: plugin } = await import("./index.js");
     plugin.register(mockApi);
 
     const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
-    const result = await forgetTool.execute("call-no-id", {});
+    const result = await forgetTool.execute("call-entity", { id: "entity:node-123" });
 
     expect(result.details.action).toBe("error");
-    expect(result.content[0].text).toContain("Either episode_id or fact_id must be provided");
+    expect(result.content[0].text).toContain("Entities cannot be deleted directly");
   });
 
   test("auto-recall performs dual search with session and long-term groups", async () => {
