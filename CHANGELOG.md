@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Colons in session group IDs break Graphiti**: `sessionGroupId()` now sanitizes invalid characters (colons, etc.) in OpenClaw `sessionKey` values (e.g. `agent:main:main` → `session-agent-main-main`), fixing silent episode creation failures and FalkorDB RediSearch syntax errors
+
 ## 0.2.0 - 2026-02-11
 
 ### Added

@@ -26,7 +26,10 @@ import { searchAuthorizedMemories } from "./search.js";
 // ============================================================================
 
 function sessionGroupId(sessionId: string): string {
-  return `session-${sessionId}`;
+  // Graphiti group_ids only allow alphanumeric, dashes, underscores.
+  // OpenClaw sessionKey can contain colons (e.g. "agent:main:main") — replace invalid chars.
+  const sanitized = sessionId.replace(/[^a-zA-Z0-9_-]/g, "-");
+  return `session-${sanitized}`;
 }
 
 // ============================================================================
