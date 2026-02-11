@@ -352,25 +352,67 @@ const memoryGraphitiPlugin = {
       {
         name: "memory_forget",
         label: "Memory Forget",
-        description: "Delete a memory episode. Requires delete permission.",
+        description:
+          "Delete a memory episode or fact. Provide either episode_id or fact_id (not both). Requires delete/write permission.",
         parameters: Type.Object({
-          episode_id: Type.String({ description: "Episode UUID to delete" }),
+          episode_id: Type.Optional(Type.String({ description: "Episode UUID to delete" })),
+          fact_id: Type.Optional(Type.String({ description: "Fact (entity edge) UUID to delete" })),
         }),
         async execute(_toolCallId, params) {
-          const { episode_id } = params as { episode_id: string };
+          const { episode_id, fact_id } = params as { episode_id?: string; fact_id?: string };
+
+          if (!episode_id && !fact_id) {
+            return {
+              content: [{ type: "text", text: "Either episode_id or fact_id must be provided." }],
+              details: { action: "error" },
+            };
+          }
+
+          // --- Fact deletion ---
+          if (fact_id) {
+            // 1. Fetch fact to get group_id for authorization
+            let fact: Awaited<ReturnType<typeof graphiti.getEntityEdge>>;
+            try {
+              fact = await graphiti.getEntityEdge(fact_id);
+            } catch {
+              return {
+                content: [{ type: "text", text: `Fact ${fact_id} not found.` }],
+                details: { action: "error", factId: fact_id },
+              };
+            }
+
+            // 2. Check write permission on the fact's group
+            const allowed = await canWriteToGroup(spicedb, currentSubject, fact.group_id, lastWriteToken);
+            if (!allowed) {
+              return {
+                content: [{ type: "text", text: `Permission denied: cannot delete fact ${fact_id}` }],
+                details: { action: "denied", factId: fact_id },
+              };
+            }
+
+            // 3. Delete fact from Graphiti
+            await graphiti.deleteEntityEdge(fact_id);
+
+            return {
+              content: [{ type: "text", text: `Fact ${fact_id} forgotten.` }],
+              details: { action: "deleted", factId: fact_id },
+            };
+          }
+
+          // --- Episode deletion (existing flow) ---
 
           // Resolve tracking UUID → real server-side UUID if this came
           // from a recent memory_store call. Awaits the background
           // resolution so permission checks use the correct UUID.
-          let effectiveId = episode_id;
-          const pending = pendingResolutions.get(episode_id);
+          let effectiveId = episode_id!;
+          const pending = pendingResolutions.get(episode_id!);
           if (pending) {
             try {
               effectiveId = await pending;
             } catch {
               // Resolution failed — try with original UUID
             }
-            pendingResolutions.delete(episode_id);
+            pendingResolutions.delete(episode_id!);
           }
 
           // 1. Check delete permission
