@@ -116,10 +116,22 @@ describe("graphitiMemoryConfigSchema", () => {
     }).toThrow("unknown keys: badField");
   });
 
-  test("throws on non-object input", () => {
-    expect(() => graphitiMemoryConfigSchema.parse(null)).toThrow("config required");
-    expect(() => graphitiMemoryConfigSchema.parse("string")).toThrow("config required");
-    expect(() => graphitiMemoryConfigSchema.parse([])).toThrow("config required");
+  test("treats null/undefined/string as empty config (all defaults)", () => {
+    // The installer writes no config key, so pluginConfig is undefined.
+    // parse() should treat these as {} and return all defaults (empty token).
+    const fromNull = graphitiMemoryConfigSchema.parse(null);
+    expect(fromNull.spicedb.token).toBe("");
+    expect(fromNull.spicedb.endpoint).toBe("localhost:50051");
+
+    const fromUndefined = graphitiMemoryConfigSchema.parse(undefined);
+    expect(fromUndefined.spicedb.token).toBe("");
+
+    const fromString = graphitiMemoryConfigSchema.parse("string");
+    expect(fromString.spicedb.token).toBe("");
+  });
+
+  test("throws on array input", () => {
+    expect(() => graphitiMemoryConfigSchema.parse([])).toThrow("not an array");
   });
 
   // Phase 2: customInstructions and maxCaptureMessages

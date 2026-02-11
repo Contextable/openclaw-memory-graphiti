@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.6 - 2026-02-11
+
+### Fixed
+
+- **Gateway shows unhelpful "config required" when plugin has no config key** (#33): The installer writes entries with no `config` key, so `pluginConfig` is `undefined` at startup. The config parser now accepts `undefined`/`null` (treating it as `{}` with all defaults) instead of throwing a generic error. This lets the flow reach `register()` which throws a clear error showing the exact JSON snippet to add to `~/.openclaw/openclaw.json`.
+
 ## 0.2.5 - 2026-02-11
 
 ### Fixed

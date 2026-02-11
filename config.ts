@@ -55,10 +55,11 @@ function assertAllowedKeys(value: Record<string, unknown>, allowed: string[], la
 
 export const graphitiMemoryConfigSchema = {
   parse(value: unknown): GraphitiMemoryConfig {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error("openclaw-memory-graphiti config required");
+    if (Array.isArray(value)) {
+      throw new Error("openclaw-memory-graphiti config must be an object, not an array");
     }
-    const cfg = value as Record<string, unknown>;
+    // Accept undefined/null (installer writes no config key) — treat as empty {}
+    const cfg = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
     assertAllowedKeys(
       cfg,
       [
