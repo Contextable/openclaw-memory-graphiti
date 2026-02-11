@@ -1069,6 +1069,53 @@ describe("memory-graphiti plugin", () => {
     expect(deleteCalls).toHaveLength(1);
   });
 
+  test("memory_forget succeeds even when deleteEpisode throws (already deleted)", async () => {
+    // Scenario: authorization passes (fragment-level), but the Graphiti delete
+    // fails because the episode doesn't exist anymore. Should still succeed.
+    mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
+      if (typeof url === "string" && url.endsWith("/health")) {
+        return Promise.resolve(new Response("OK", { status: 200 }));
+      }
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      if (body.method === "initialize") {
+        return Promise.resolve(makeSseResponse({
+          jsonrpc: "2.0", id: body.id,
+          result: { capabilities: { tools: {} }, serverInfo: { name: "Graphiti", version: "1.0" }, protocolVersion: "2024-11-05" },
+        }));
+      }
+      if (body.method === "notifications/initialized") {
+        return Promise.resolve(new Response(null, { status: 202 }));
+      }
+      if (body.params?.name === "delete_episode") {
+        // Simulate Graphiti returning a JSON-RPC error for non-existent episode
+        return Promise.resolve(makeSseResponse({
+          jsonrpc: "2.0", id: body.id,
+          error: { code: -32000, message: "Episode not found" },
+        }));
+      }
+      return Promise.resolve(makeSseResponse({
+        jsonrpc: "2.0", id: body.id || 1,
+        result: { content: [{ type: "text", text: '{"message":"ok"}' }], isError: false },
+      }));
+    });
+
+    const { v1 } = await import("@authzed/authzed-node");
+    const mockClient = (v1.NewClient as ReturnType<typeof vi.fn>)();
+
+    // Allow fragment-level delete
+    mockClient.promises.checkPermission.mockResolvedValue({ permissionship: 2 });
+    mockClient.promises.deleteRelationships.mockResolvedValue({ deletedAt: { token: "tok" } });
+
+    const { default: plugin } = await import("./index.js");
+    plugin.register(mockApi);
+
+    const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
+    const result = await forgetTool.execute("call-already-deleted", { episode_id: "ep-gone" });
+
+    expect(result.details.action).toBe("deleted");
+    expect(result.content[0].text).toContain("forgotten");
+  });
+
   test("memory_forget denies when shared_by exists for a different subject", async () => {
     // Scenario: SpiceDB has shared_by for a different subject — genuine denial, no fallback.
     setupGraphitiMock('{"message":"deleted"}');
@@ -1112,8 +1159,10 @@ describe("memory-graphiti plugin", () => {
     expect(deleteCalls).toHaveLength(0);
   });
 
-  test("memory_forget denies when no SpiceDB rels and episode not in any authorized group", async () => {
-    // Scenario: orphaned fragment + episode not found in authorized groups → denied.
+  test("memory_forget returns not_found when no SpiceDB rels and episode not in any authorized group", async () => {
+    // Scenario: orphaned fragment + episode not found in authorized groups → not_found.
+    // This happens when a tracking UUID from a previous session is used, or
+    // the episode was already deleted.
     const episodes = [
       { uuid: "ep-different", name: "other", content: "c", source_description: "t", group_id: "main", created_at: "2026-02-10T00:00:00Z" },
     ];
@@ -1162,8 +1211,8 @@ describe("memory-graphiti plugin", () => {
     const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
     const result = await forgetTool.execute("call-not-found", { episode_id: "ep-nonexistent" });
 
-    expect(result.details.action).toBe("denied");
-    expect(result.content[0].text).toContain("Permission denied");
+    expect(result.details.action).toBe("not_found");
+    expect(result.content[0].text).toContain("not found in any accessible group");
   });
 
   test("auto-recall performs dual search with session and long-term groups", async () => {

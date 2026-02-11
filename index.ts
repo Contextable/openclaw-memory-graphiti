@@ -419,6 +419,7 @@ const memoryGraphitiPlugin = {
 
           // 1. Check delete permission (primary: fragment-level)
           let allowed = await canDeleteFragment(spicedb, currentSubject, effectiveId, lastWriteToken);
+          let episodeNotFound = false;
 
           if (!allowed) {
             // Fallback for orphaned episodes whose deferred SpiceDB write
@@ -446,6 +447,10 @@ const memoryGraphitiPlugin = {
               const matchedGroup = groupSearches.find((g) => g !== null);
               if (matchedGroup) {
                 allowed = await canWriteToGroup(spicedb, currentSubject, matchedGroup, lastWriteToken);
+              } else {
+                // Episode has no SpiceDB rels and isn't in any accessible group.
+                // Likely a tracking UUID from a previous session, or already deleted.
+                episodeNotFound = true;
               }
             }
             // If rels.length > 0 but canDeleteFragment was false,
@@ -453,19 +458,23 @@ const memoryGraphitiPlugin = {
           }
 
           if (!allowed) {
+            const message = episodeNotFound
+              ? `Episode ${episode_id} not found in any accessible group. It may have already been deleted or the ID may be from a previous session.`
+              : `Permission denied: cannot delete episode ${episode_id}`;
             return {
-              content: [
-                {
-                  type: "text",
-                  text: `Permission denied: cannot delete episode ${episode_id}`,
-                },
-              ],
-              details: { action: "denied", episodeId: episode_id },
+              content: [{ type: "text", text: message }],
+              details: { action: episodeNotFound ? "not_found" : "denied", episodeId: episode_id },
             };
           }
 
           // 2. Delete from Graphiti
-          await graphiti.deleteEpisode(effectiveId);
+          try {
+            await graphiti.deleteEpisode(effectiveId);
+          } catch {
+            // Episode may not exist in Graphiti (already deleted, or tracking
+            // UUID that never matched a real episode). Proceed with SpiceDB
+            // cleanup regardless.
+          }
 
           // 3. Clean up SpiceDB relationships (best-effort)
           try {

@@ -7,6 +7,8 @@
 - **Colons in session group IDs break Graphiti**: `sessionGroupId()` now sanitizes invalid characters (colons, etc.) in OpenClaw `sessionKey` values (e.g. `agent:main:main` → `session-agent-main-main`), fixing silent episode creation failures and FalkorDB RediSearch syntax errors
 - **SpiceDB schema written on every startup**: the auto-write guard checked for `memory_group` which doesn't exist in the schema — changed to `memory_fragment` so the schema is only written on first run
 - **Episode deletion fails when deferred SpiceDB write is missing**: `memory_forget` now falls back to group-level authorization (`canWriteToGroup`) when the fragment has no SpiceDB relationships (e.g. UUID resolution timeout, transient errors, or pre-#25 colon bug), matching the fact deletion authorization model
+- **Misleading "Permission denied" for non-existent episodes**: `memory_forget` now returns "Episode not found in any accessible group" (with `not_found` action) instead of "Permission denied" when the episode has no SpiceDB relationships and doesn't exist in any accessible Graphiti group — typically caused by using a tracking UUID from a previous session, or an already-deleted episode
+- **Episode deletion throws on missing Graphiti episode**: `memory_forget` now catches errors from `deleteEpisode` (e.g. episode already deleted) and still completes cleanup, instead of propagating an unhandled error
 
 ## 0.2.0 - 2026-02-11
 
