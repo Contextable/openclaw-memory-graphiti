@@ -67,9 +67,9 @@ const memoryGraphitiPlugin = {
     graphiti.uuidPollMaxAttempts = cfg.graphiti.uuidPollMaxAttempts;
     if (!cfg.spicedb.token) {
       throw new Error(
-        "openclaw-memory-graphiti: spicedb.token is not configured. " +
-        "Set it in plugins.entries.openclaw-memory-graphiti.config.spicedb.token " +
-        "in ~/.openclaw/openclaw.json",
+        'openclaw-memory-graphiti: spicedb.token is not configured. Add a "config" block to ' +
+        "plugins.entries.openclaw-memory-graphiti in ~/.openclaw/openclaw.json:\n" +
+        '  "config": { "spicedb": { "token": "<your-preshared-key>", "insecure": true } }',
       );
     }
     const spicedb = new SpiceDbClient(cfg.spicedb);

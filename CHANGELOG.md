@@ -1,10 +1,16 @@
 # Changelog
 
+## 0.2.5 - 2026-02-11
+
+### Fixed
+
+- **`plugins install` still fails — JSON Schema in `openclaw.plugin.json` had `required` fields** (#33): The installer validates against the JSON Schema in `openclaw.plugin.json` (via ajv) *before* the TypeScript config parser runs. Removed `"required": ["spicedb"]` at the top level and `"required": ["token"]` inside the spicedb sub-schema. Added tests that walk the entire JSON Schema tree to prevent regressions.
+
 ## 0.2.4 - 2026-02-11
 
 ### Fixed
 
-- **`plugins install` fails with "must have required property 'spicedb'"** (#33): Config schema now accepts an empty `config: {}` at install time by defaulting all SpiceDB fields. The `spicedb.token` defaults to an empty string so the config file write succeeds; on startup, `register()` checks for an empty token and throws a clear error directing the user to configure it in `~/.openclaw/openclaw.json`.
+- **`plugins install` fails with "must have required property 'spicedb'"** (#33): Made the TypeScript config parser accept empty `config: {}` by defaulting all SpiceDB fields. The `spicedb.token` defaults to an empty string so install succeeds; on startup, `register()` checks for an empty token and throws a clear error directing the user to configure it in `~/.openclaw/openclaw.json`.
 - **grpc-js unhandled rejection crashes gateway on startup**: The `@grpc/grpc-js` load balancer state machine can emit unhandled promise rejections during initial SpiceDB connection setup, crashing the Node.js process. Added a temporary `process.on('unhandledRejection')` guard that catches grpc-related rejections for the first 10 seconds after client creation, with proper cleanup in `stop()`.
 - **Docker Compose Graphiti uses wrong FalkorDB host**: `FALKORDB_URI` in docker-compose.yml pointed to `host.docker.internal` instead of the `falkordb` service name, breaking inter-container connectivity.
 
