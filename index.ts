@@ -22,8 +22,6 @@ import { SpiceDbClient } from "./spicedb.js";
 import {
   lookupAuthorizedGroups,
   writeFragmentRelationships,
-  deleteFragmentRelationships,
-  canDeleteFragment,
   canWriteToGroup,
   ensureGroupMembership,
   type Subject,
@@ -65,6 +63,8 @@ const memoryGraphitiPlugin = {
     const cfg = graphitiMemoryConfigSchema.parse(api.pluginConfig);
 
     const graphiti = new GraphitiClient(cfg.graphiti.endpoint);
+    graphiti.uuidPollIntervalMs = cfg.graphiti.uuidPollIntervalMs;
+    graphiti.uuidPollMaxAttempts = cfg.graphiti.uuidPollMaxAttempts;
     const spicedb = new SpiceDbClient(cfg.spicedb);
 
     const currentSubject: Subject = {
@@ -78,10 +78,6 @@ const memoryGraphitiPlugin = {
     // Track most recent ZedToken from SpiceDB writes for causal consistency.
     // Reads use at_least_as_fresh(token) after own writes, minimize_latency otherwise.
     let lastWriteToken: string | undefined;
-
-    // Map tracking UUIDs to resolvedUuid promises so memory_forget can translate
-    // a tracking UUID (from memory_store) to the real server-side UUID.
-    const pendingResolutions = new Map<string, Promise<string>>();
 
     api.logger.info(
       `memory-graphiti: registered (graphiti: ${cfg.graphiti.endpoint}, spicedb: ${cfg.spicedb.endpoint})`,
@@ -299,19 +295,17 @@ const memoryGraphitiPlugin = {
             custom_extraction_instructions: cfg.customInstructions,
           });
 
-          // 2. Write authorization relationships in SpiceDB (background).
-          // Graphiti processes episodes asynchronously — the real UUID isn't
-          // available immediately. resolvedUuid polls in the background and
-          // writes SpiceDB relationships once the real UUID is known, so the
-          // tool response isn't blocked.
+          // 2. Write authorization relationships in SpiceDB (background)
           const involvedSubjects: Subject[] = involves.map((id) => ({
             type: "person" as const,
             id,
           }));
 
-          // Chain UUID resolution → SpiceDB write, and store the promise so
-          // memory_forget can await both before checking permissions.
-          const deferredWrite = result.resolvedUuid
+          // Chain UUID resolution → SpiceDB write in the background.
+          // Graphiti processes episodes asynchronously, so the real UUID
+          // isn't available immediately. Once resolved, write SpiceDB
+          // relationships so authorization checks work for this fragment.
+          result.resolvedUuid
             .then(async (realUuid) => {
               const writeToken = await writeFragmentRelationships(spicedb, {
                 fragmentId: realUuid,
@@ -321,14 +315,12 @@ const memoryGraphitiPlugin = {
               });
               if (writeToken) lastWriteToken = writeToken;
               return realUuid;
+            })
+            .catch((err) => {
+              api.logger.warn(
+                `memory-graphiti: deferred SpiceDB write failed for memory_store: ${err}`,
+              );
             });
-
-          pendingResolutions.set(result.episode_uuid, deferredWrite);
-          deferredWrite.catch((err) => {
-            api.logger.warn(
-              `memory-graphiti: deferred SpiceDB write failed for memory_store: ${err}`,
-            );
-          });
 
           return {
             content: [
@@ -355,140 +347,80 @@ const memoryGraphitiPlugin = {
         name: "memory_forget",
         label: "Memory Forget",
         description:
-          "Delete a memory episode or fact. Provide either episode_id or fact_id (not both). Requires delete/write permission.",
+          "Delete a fact from the knowledge graph by ID. Use the type-prefixed IDs from memory_recall (e.g. 'fact:UUID'). Entities cannot be deleted directly — delete the facts connected to them instead.",
         parameters: Type.Object({
-          episode_id: Type.Optional(Type.String({ description: "Episode UUID to delete" })),
-          fact_id: Type.Optional(Type.String({ description: "Fact (entity edge) UUID to delete" })),
+          id: Type.String({ description: "Fact ID to delete (e.g. 'fact:da8650cb-...')" }),
         }),
         async execute(_toolCallId, params) {
-          const { episode_id, fact_id } = params as { episode_id?: string; fact_id?: string };
+          const { id } = params as { id: string };
 
-          if (!episode_id && !fact_id) {
+          // Parse type prefix from ID (e.g. "fact:da8650cb-..." → type="fact", uuid="da8650cb-...")
+          const colonIdx = id.indexOf(":");
+          let idType: "fact" | "entity" | "episode";
+          let uuid: string;
+
+          if (colonIdx > 0 && colonIdx < 10) {
+            const prefix = id.slice(0, colonIdx);
+            uuid = id.slice(colonIdx + 1);
+            if (prefix === "fact") {
+              idType = "fact";
+            } else if (prefix === "entity") {
+              idType = "entity";
+            } else {
+              // Unknown prefix — treat as bare episode UUID
+              idType = "episode";
+              uuid = id;
+            }
+          } else {
+            idType = "episode";
+            uuid = id;
+          }
+
+          // --- Entity: not deletable via MCP server ---
+          if (idType === "entity") {
             return {
-              content: [{ type: "text", text: "Either episode_id or fact_id must be provided." }],
-              details: { action: "error" },
+              content: [{ type: "text", text: `Entities cannot be deleted directly. To remove information about an entity, delete the specific facts (edges) connected to it.` }],
+              details: { action: "error", id },
             };
           }
 
           // --- Fact deletion ---
-          if (fact_id) {
-            // 1. Fetch fact to get group_id for authorization
+          if (idType === "fact") {
             let fact: Awaited<ReturnType<typeof graphiti.getEntityEdge>>;
             try {
-              fact = await graphiti.getEntityEdge(fact_id);
+              fact = await graphiti.getEntityEdge(uuid);
             } catch {
               return {
-                content: [{ type: "text", text: `Fact ${fact_id} not found.` }],
-                details: { action: "error", factId: fact_id },
+                content: [{ type: "text", text: `Fact ${uuid} not found.` }],
+                details: { action: "not_found", id },
               };
             }
 
-            // 2. Check write permission on the fact's group
-            const allowed = await canWriteToGroup(spicedb, currentSubject, fact.group_id, lastWriteToken);
+            // Graphiti allows empty-string group_ids (its default for some backends),
+            // but SpiceDB ObjectIds require at least one character. Map empty to the
+            // configured default so the permission check doesn't fail with INVALID_ARGUMENT.
+            const effectiveGroupId = fact.group_id || cfg.graphiti.defaultGroupId;
+            const allowed = await canWriteToGroup(spicedb, currentSubject, effectiveGroupId, lastWriteToken);
             if (!allowed) {
               return {
-                content: [{ type: "text", text: `Permission denied: cannot delete fact ${fact_id}` }],
-                details: { action: "denied", factId: fact_id },
+                content: [{ type: "text", text: `Permission denied: cannot delete fact in group "${effectiveGroupId}"` }],
+                details: { action: "denied", id },
               };
             }
 
-            // 3. Delete fact from Graphiti
-            await graphiti.deleteEntityEdge(fact_id);
+            await graphiti.deleteEntityEdge(uuid);
 
             return {
-              content: [{ type: "text", text: `Fact ${fact_id} forgotten.` }],
-              details: { action: "deleted", factId: fact_id },
+              content: [{ type: "text", text: `Fact forgotten.` }],
+              details: { action: "deleted", id, type: "fact" },
             };
           }
 
-          // --- Episode deletion (existing flow) ---
-
-          // Resolve tracking UUID → real server-side UUID if this came
-          // from a recent memory_store call. Awaits the background
-          // resolution so permission checks use the correct UUID.
-          let effectiveId = episode_id!;
-          const pending = pendingResolutions.get(episode_id!);
-          if (pending) {
-            try {
-              effectiveId = await pending;
-            } catch {
-              // Resolution failed — try with original UUID
-            }
-            pendingResolutions.delete(episode_id!);
-          }
-
-          // 1. Check delete permission (primary: fragment-level)
-          let allowed = await canDeleteFragment(spicedb, currentSubject, effectiveId, lastWriteToken);
-          let episodeNotFound = false;
-
-          if (!allowed) {
-            // Fallback for orphaned episodes whose deferred SpiceDB write
-            // failed (UUID resolution timeout, transient error, or pre-#25
-            // colon bug). If the fragment has NO relationships at all, fall
-            // back to group-level auth — matching the fact deletion model.
-            const rels = await spicedb.readRelationships({
-              resourceType: "memory_fragment",
-              resourceId: effectiveId,
-            });
-
-            if (rels.length === 0) {
-              // No SpiceDB relationships → search authorized groups for this episode
-              const groups = await lookupAuthorizedGroups(spicedb, currentSubject, lastWriteToken);
-              const groupSearches = await Promise.all(
-                groups.map(async (groupId) => {
-                  try {
-                    const episodes = await graphiti.getEpisodes(groupId, 100);
-                    return episodes.some((ep) => ep.uuid === effectiveId) ? groupId : null;
-                  } catch {
-                    return null;
-                  }
-                }),
-              );
-              const matchedGroup = groupSearches.find((g) => g !== null);
-              if (matchedGroup) {
-                allowed = await canWriteToGroup(spicedb, currentSubject, matchedGroup, lastWriteToken);
-              } else {
-                // Episode has no SpiceDB rels and isn't in any accessible group.
-                // Likely a tracking UUID from a previous session, or already deleted.
-                episodeNotFound = true;
-              }
-            }
-            // If rels.length > 0 but canDeleteFragment was false,
-            // it's a genuine denial (different subject owns it).
-          }
-
-          if (!allowed) {
-            const message = episodeNotFound
-              ? `Episode ${episode_id} not found in any accessible group. It may have already been deleted or the ID may be from a previous session.`
-              : `Permission denied: cannot delete episode ${episode_id}`;
-            return {
-              content: [{ type: "text", text: message }],
-              details: { action: episodeNotFound ? "not_found" : "denied", episodeId: episode_id },
-            };
-          }
-
-          // 2. Delete from Graphiti
-          try {
-            await graphiti.deleteEpisode(effectiveId);
-          } catch {
-            // Episode may not exist in Graphiti (already deleted, or tracking
-            // UUID that never matched a real episode). Proceed with SpiceDB
-            // cleanup regardless.
-          }
-
-          // 3. Clean up SpiceDB relationships (best-effort)
-          try {
-            const deleteToken = await deleteFragmentRelationships(spicedb, effectiveId);
-            if (deleteToken) lastWriteToken = deleteToken;
-          } catch {
-            api.logger.warn(
-              `memory-graphiti: failed to clean up SpiceDB relationships for ${episode_id}`,
-            );
-          }
-
+          // --- Bare UUID / episode: not supported via agent tool ---
+          // Episode deletion is an admin operation available via CLI (graphiti-mem cleanup).
           return {
-            content: [{ type: "text", text: `Memory ${episode_id} forgotten.` }],
-            details: { action: "deleted", episodeId: episode_id },
+            content: [{ type: "text", text: `Unrecognized ID format "${id}". Use IDs from memory_recall (e.g. 'fact:da8650cb-...'). Episode deletion is available via the CLI.` }],
+            details: { action: "error", id },
           };
         },
       },

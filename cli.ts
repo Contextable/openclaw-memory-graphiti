@@ -337,7 +337,7 @@ export function registerCommands(cmd: Command, ctx: CliContext): void {
 
       // Ensure agent is a member of the target workspace group
       if (importWorkspace) {
-        cmdbershipGroups.add(targetGroup);
+        membershipGroups.add(targetGroup);
       }
 
       // Phase 1a: Import workspace files to Graphiti
@@ -445,7 +445,7 @@ export function registerCommands(cmd: Command, ctx: CliContext): void {
                 group_id: sessionGroup,
                 source: "message",
               });
-              cmdbershipGroups.add(sessionGroup);
+              membershipGroups.add(sessionGroup);
               pendingResolutions.push({
                 resolvedUuid: result.resolvedUuid,
                 groupId: sessionGroup,

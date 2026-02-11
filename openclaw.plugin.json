@@ -27,6 +27,18 @@
       "placeholder": "main",
       "help": "Default Graphiti group_id for memory isolation"
     },
+    "graphiti.uuidPollIntervalMs": {
+      "label": "UUID Poll Interval (ms)",
+      "placeholder": "3000",
+      "help": "Milliseconds between polling attempts when resolving episode UUIDs after memory_store (default: 3000)",
+      "advanced": true
+    },
+    "graphiti.uuidPollMaxAttempts": {
+      "label": "UUID Poll Max Attempts",
+      "placeholder": "30",
+      "help": "Maximum polling attempts for episode UUID resolution; total timeout = interval × attempts (default: 30 = 90s)",
+      "advanced": true
+    },
     "subjectType": {
       "label": "Subject Type",
       "placeholder": "agent",
@@ -76,7 +88,9 @@
         "additionalProperties": false,
         "properties": {
           "endpoint": { "type": "string" },
-          "defaultGroupId": { "type": "string" }
+          "defaultGroupId": { "type": "string" },
+          "uuidPollIntervalMs": { "type": "integer", "minimum": 500, "maximum": 30000 },
+          "uuidPollMaxAttempts": { "type": "integer", "minimum": 1, "maximum": 200 }
         }
       },
       "subjectType": { "type": "string", "enum": ["agent", "person"] },

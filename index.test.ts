@@ -286,7 +286,7 @@ describe("memory-graphiti plugin", () => {
 
     expect(result.details.action).toBe("created");
     expect(result.details.episodeId).toBeDefined();
-    expect(result.details.episodeId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(result.details.episodeId).toMatch(/^tmp-[0-9a-f-]{36}$/);
     expect(result.details.groupId).toBe("family");
     expect(result.details.longTerm).toBe(true);
 
@@ -355,17 +355,18 @@ describe("memory-graphiti plugin", () => {
     expect(result.details.groupId).toBe("session-agent-main-main");
   });
 
-  test("memory_forget tool checks permission before deleting", async () => {
-    setupGraphitiMock('{"message":"deleted"}');
+  test("memory_forget with bare UUID returns error (episode deletion not exposed to agent)", async () => {
+    setupGraphitiMock('{"message":"ok"}');
 
     const { default: plugin } = await import("./index.js");
     plugin.register(mockApi);
 
     const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
-    const result = await forgetTool.execute("call-3", { episode_id: "ep-123" });
+    const result = await forgetTool.execute("call-3", { id: "ep-123" });
 
-    expect(result.details.action).toBe("deleted");
-    expect(result.details.episodeId).toBe("ep-123");
+    expect(result.details.action).toBe("error");
+    expect(result.content[0].text).toContain("Unrecognized ID format");
+    expect(result.content[0].text).toContain("fact:");
   });
 
   test("memory_store denies write to unauthorized non-session group", async () => {
@@ -857,7 +858,7 @@ describe("memory-graphiti plugin", () => {
   // memory_forget: fact deletion
   // ==========================================================================
 
-  test("memory_forget with fact_id fetches fact, checks group write, deletes edge", async () => {
+  test("memory_forget with fact: prefix fetches fact, checks group write, deletes edge", async () => {
     const factData = {
       uuid: "fact-abc",
       fact: "Mark works at Acme",
@@ -900,10 +901,11 @@ describe("memory-graphiti plugin", () => {
     plugin.register(mockApi);
 
     const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
-    const result = await forgetTool.execute("call-fact-del", { fact_id: "fact-abc" });
+    const result = await forgetTool.execute("call-fact-del", { id: "fact:fact-abc" });
 
     expect(result.details.action).toBe("deleted");
-    expect(result.details.factId).toBe("fact-abc");
+    expect(result.details.id).toBe("fact:fact-abc");
+    expect(result.details.type).toBe("fact");
 
     // Verify get_entity_edge was called
     const getEdgeCalls = mockFetch.mock.calls.filter((call) => {
@@ -922,7 +924,7 @@ describe("memory-graphiti plugin", () => {
     expect(deleteEdgeCalls).toHaveLength(1);
   });
 
-  test("memory_forget with fact_id denies when no write permission on group", async () => {
+  test("memory_forget with fact: prefix denies when no write permission on group", async () => {
     const factData = {
       uuid: "fact-denied",
       fact: "Secret fact",
@@ -970,10 +972,10 @@ describe("memory-graphiti plugin", () => {
     plugin.register(mockApi);
 
     const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
-    const result = await forgetTool.execute("call-fact-denied", { fact_id: "fact-denied" });
+    const result = await forgetTool.execute("call-fact-denied", { id: "fact:fact-denied" });
 
     expect(result.details.action).toBe("denied");
-    expect(result.details.factId).toBe("fact-denied");
+    expect(result.details.id).toBe("fact:fact-denied");
 
     // Verify delete_entity_edge was NOT called
     const deleteEdgeCalls = mockFetch.mock.calls.filter((call) => {
@@ -984,235 +986,17 @@ describe("memory-graphiti plugin", () => {
     expect(deleteEdgeCalls).toHaveLength(0);
   });
 
-  test("memory_forget with neither episode_id nor fact_id returns error", async () => {
+  test("memory_forget with entity: prefix returns error (entities not directly deletable)", async () => {
     setupGraphitiMock();
 
     const { default: plugin } = await import("./index.js");
     plugin.register(mockApi);
 
     const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
-    const result = await forgetTool.execute("call-no-id", {});
+    const result = await forgetTool.execute("call-entity", { id: "entity:node-123" });
 
     expect(result.details.action).toBe("error");
-    expect(result.content[0].text).toContain("Either episode_id or fact_id must be provided");
-  });
-
-  // ==========================================================================
-  // memory_forget: episode deletion fallback authorization (#29)
-  // ==========================================================================
-
-  test("memory_forget falls back to group-level auth when no SpiceDB relationships exist", async () => {
-    // Scenario: deferred SpiceDB write failed → fragment has no relationships.
-    // Fallback searches authorized groups for the episode and uses canWriteToGroup.
-    const episodes = [
-      { uuid: "ep-orphan", name: "mem_1", content: "test", source_description: "conv", group_id: "main", created_at: "2026-02-10T00:00:00Z" },
-    ];
-
-    // Custom fetch mock: get_episodes returns the orphaned episode, delete_episode succeeds
-    mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
-      if (typeof url === "string" && url.endsWith("/health")) {
-        return Promise.resolve(new Response("OK", { status: 200 }));
-      }
-      const body = init?.body ? JSON.parse(init.body as string) : {};
-      if (body.method === "initialize") {
-        return Promise.resolve(makeSseResponse({
-          jsonrpc: "2.0", id: body.id,
-          result: { capabilities: { tools: {} }, serverInfo: { name: "Graphiti", version: "1.0" }, protocolVersion: "2024-11-05" },
-        }));
-      }
-      if (body.method === "notifications/initialized") {
-        return Promise.resolve(new Response(null, { status: 202 }));
-      }
-      if (body.params?.name === "get_episodes") {
-        return Promise.resolve(makeSseResponse({
-          jsonrpc: "2.0", id: body.id,
-          result: { content: [{ type: "text", text: JSON.stringify({ episodes }) }], isError: false },
-        }));
-      }
-      // delete_episode and any other tool
-      return Promise.resolve(makeSseResponse({
-        jsonrpc: "2.0", id: body.id || 1,
-        result: { content: [{ type: "text", text: '{"message":"deleted"}' }], isError: false },
-      }));
-    });
-
-    const { v1 } = await import("@authzed/authzed-node");
-    const mockClient = (v1.NewClient as ReturnType<typeof vi.fn>)();
-
-    // Deny fragment-level delete, allow group-level contribute
-    mockClient.promises.checkPermission.mockImplementation((req: Record<string, unknown>) => {
-      if (req.permission === "delete") {
-        return Promise.resolve({ permissionship: 1 }); // NO_PERMISSION
-      }
-      return Promise.resolve({ permissionship: 2 }); // HAS_PERMISSION (contribute)
-    });
-    // No SpiceDB relationships for this fragment (deferred write failed)
-    mockClient.promises.readRelationships.mockResolvedValue([]);
-    // Subject is authorized for "main" group
-    mockClient.promises.lookupResources.mockResolvedValue([{ resourceObjectId: "main" }]);
-
-    const { default: plugin } = await import("./index.js");
-    plugin.register(mockApi);
-
-    const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
-    const result = await forgetTool.execute("call-fallback", { episode_id: "ep-orphan" });
-
-    expect(result.details.action).toBe("deleted");
-    expect(result.details.episodeId).toBe("ep-orphan");
-
-    // Verify delete_episode was called
-    const deleteCalls = mockFetch.mock.calls.filter((call) => {
-      if (!call[1]?.body) return false;
-      const body = JSON.parse(call[1].body as string);
-      return body.params?.name === "delete_episode";
-    });
-    expect(deleteCalls).toHaveLength(1);
-  });
-
-  test("memory_forget succeeds even when deleteEpisode throws (already deleted)", async () => {
-    // Scenario: authorization passes (fragment-level), but the Graphiti delete
-    // fails because the episode doesn't exist anymore. Should still succeed.
-    mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
-      if (typeof url === "string" && url.endsWith("/health")) {
-        return Promise.resolve(new Response("OK", { status: 200 }));
-      }
-      const body = init?.body ? JSON.parse(init.body as string) : {};
-      if (body.method === "initialize") {
-        return Promise.resolve(makeSseResponse({
-          jsonrpc: "2.0", id: body.id,
-          result: { capabilities: { tools: {} }, serverInfo: { name: "Graphiti", version: "1.0" }, protocolVersion: "2024-11-05" },
-        }));
-      }
-      if (body.method === "notifications/initialized") {
-        return Promise.resolve(new Response(null, { status: 202 }));
-      }
-      if (body.params?.name === "delete_episode") {
-        // Simulate Graphiti returning a JSON-RPC error for non-existent episode
-        return Promise.resolve(makeSseResponse({
-          jsonrpc: "2.0", id: body.id,
-          error: { code: -32000, message: "Episode not found" },
-        }));
-      }
-      return Promise.resolve(makeSseResponse({
-        jsonrpc: "2.0", id: body.id || 1,
-        result: { content: [{ type: "text", text: '{"message":"ok"}' }], isError: false },
-      }));
-    });
-
-    const { v1 } = await import("@authzed/authzed-node");
-    const mockClient = (v1.NewClient as ReturnType<typeof vi.fn>)();
-
-    // Allow fragment-level delete
-    mockClient.promises.checkPermission.mockResolvedValue({ permissionship: 2 });
-    mockClient.promises.deleteRelationships.mockResolvedValue({ deletedAt: { token: "tok" } });
-
-    const { default: plugin } = await import("./index.js");
-    plugin.register(mockApi);
-
-    const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
-    const result = await forgetTool.execute("call-already-deleted", { episode_id: "ep-gone" });
-
-    expect(result.details.action).toBe("deleted");
-    expect(result.content[0].text).toContain("forgotten");
-  });
-
-  test("memory_forget denies when shared_by exists for a different subject", async () => {
-    // Scenario: SpiceDB has shared_by for a different subject — genuine denial, no fallback.
-    setupGraphitiMock('{"message":"deleted"}');
-
-    const { v1 } = await import("@authzed/authzed-node");
-    const mockClient = (v1.NewClient as ReturnType<typeof vi.fn>)();
-
-    // Deny fragment-level delete
-    mockClient.promises.checkPermission.mockImplementation((req: Record<string, unknown>) => {
-      if (req.permission === "delete") {
-        return Promise.resolve({ permissionship: 1 }); // NO_PERMISSION
-      }
-      return Promise.resolve({ permissionship: 2 });
-    });
-    // SpiceDB HAS relationships — shared_by exists (for a different subject)
-    mockClient.promises.readRelationships.mockResolvedValue([
-      {
-        relationship: {
-          resource: { objectType: "memory_fragment", objectId: "ep-other" },
-          relation: "shared_by",
-          subject: { object: { objectType: "agent", objectId: "other-agent" } },
-        },
-      },
-    ]);
-
-    const { default: plugin } = await import("./index.js");
-    plugin.register(mockApi);
-
-    const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
-    const result = await forgetTool.execute("call-genuine-deny", { episode_id: "ep-other" });
-
-    expect(result.details.action).toBe("denied");
-    expect(result.content[0].text).toContain("Permission denied");
-
-    // Verify delete_episode was NOT called
-    const deleteCalls = mockFetch.mock.calls.filter((call) => {
-      if (!call[1]?.body) return false;
-      const body = JSON.parse(call[1].body as string);
-      return body.params?.name === "delete_episode";
-    });
-    expect(deleteCalls).toHaveLength(0);
-  });
-
-  test("memory_forget returns not_found when no SpiceDB rels and episode not in any authorized group", async () => {
-    // Scenario: orphaned fragment + episode not found in authorized groups → not_found.
-    // This happens when a tracking UUID from a previous session is used, or
-    // the episode was already deleted.
-    const episodes = [
-      { uuid: "ep-different", name: "other", content: "c", source_description: "t", group_id: "main", created_at: "2026-02-10T00:00:00Z" },
-    ];
-
-    mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
-      if (typeof url === "string" && url.endsWith("/health")) {
-        return Promise.resolve(new Response("OK", { status: 200 }));
-      }
-      const body = init?.body ? JSON.parse(init.body as string) : {};
-      if (body.method === "initialize") {
-        return Promise.resolve(makeSseResponse({
-          jsonrpc: "2.0", id: body.id,
-          result: { capabilities: { tools: {} }, serverInfo: { name: "Graphiti", version: "1.0" }, protocolVersion: "2024-11-05" },
-        }));
-      }
-      if (body.method === "notifications/initialized") {
-        return Promise.resolve(new Response(null, { status: 202 }));
-      }
-      if (body.params?.name === "get_episodes") {
-        return Promise.resolve(makeSseResponse({
-          jsonrpc: "2.0", id: body.id,
-          result: { content: [{ type: "text", text: JSON.stringify({ episodes }) }], isError: false },
-        }));
-      }
-      return Promise.resolve(makeSseResponse({
-        jsonrpc: "2.0", id: body.id || 1,
-        result: { content: [{ type: "text", text: '{"message":"ok"}' }], isError: false },
-      }));
-    });
-
-    const { v1 } = await import("@authzed/authzed-node");
-    const mockClient = (v1.NewClient as ReturnType<typeof vi.fn>)();
-
-    mockClient.promises.checkPermission.mockImplementation((req: Record<string, unknown>) => {
-      if (req.permission === "delete") {
-        return Promise.resolve({ permissionship: 1 });
-      }
-      return Promise.resolve({ permissionship: 2 });
-    });
-    mockClient.promises.readRelationships.mockResolvedValue([]);
-    mockClient.promises.lookupResources.mockResolvedValue([{ resourceObjectId: "main" }]);
-
-    const { default: plugin } = await import("./index.js");
-    plugin.register(mockApi);
-
-    const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
-    const result = await forgetTool.execute("call-not-found", { episode_id: "ep-nonexistent" });
-
-    expect(result.details.action).toBe("not_found");
-    expect(result.content[0].text).toContain("not found in any accessible group");
+    expect(result.content[0].text).toContain("Entities cannot be deleted directly");
   });
 
   test("auto-recall performs dual search with session and long-term groups", async () => {

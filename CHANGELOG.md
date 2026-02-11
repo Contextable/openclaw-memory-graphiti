@@ -6,9 +6,20 @@
 
 - **Colons in session group IDs break Graphiti**: `sessionGroupId()` now sanitizes invalid characters (colons, etc.) in OpenClaw `sessionKey` values (e.g. `agent:main:main` → `session-agent-main-main`), fixing silent episode creation failures and FalkorDB RediSearch syntax errors
 - **SpiceDB schema written on every startup**: the auto-write guard checked for `memory_group` which doesn't exist in the schema — changed to `memory_fragment` so the schema is only written on first run
-- **Episode deletion fails when deferred SpiceDB write is missing**: `memory_forget` now falls back to group-level authorization (`canWriteToGroup`) when the fragment has no SpiceDB relationships (e.g. UUID resolution timeout, transient errors, or pre-#25 colon bug), matching the fact deletion authorization model
-- **Misleading "Permission denied" for non-existent episodes**: `memory_forget` now returns "Episode not found in any accessible group" (with `not_found` action) instead of "Permission denied" when the episode has no SpiceDB relationships and doesn't exist in any accessible Graphiti group — typically caused by using a tracking UUID from a previous session, or an already-deleted episode
-- **Episode deletion throws on missing Graphiti episode**: `memory_forget` now catches errors from `deleteEpisode` (e.g. episode already deleted) and still completes cleanup, instead of propagating an unhandled error
+- **UUID resolution polling times out before Graphiti finishes processing**: Increased polling timeout from 30s (15 polls x 2s) to 90s (30 polls x 3s) — Graphiti's LLM entity extraction takes 10-37s in practice ([getzep/graphiti#356](https://github.com/getzep/graphiti/issues/356)), so the old 30s window failed ~25-50% of the time. Added diagnostic logging to polling loop for debugging.
+- **LLM confuses node UUIDs with deletable IDs**: `factToResult` was falling back to bare `source_node_uuid`/`target_node_uuid` when node names were null, leaking raw node UUIDs into formatted search results. The LLM would then pass these to `memory_forget`, causing "Permission denied" errors. Now falls back to `"?"` instead of exposing node UUIDs.
+- **Empty Graphiti group_id crashes SpiceDB permission check**: Graphiti allows empty-string `group_id` (its default for some backends like FalkorDB), but SpiceDB ObjectIds require at least one character. `memory_forget` now maps empty `group_id` to the configured `defaultGroupId` before the permission check.
+
+### Changed
+
+- **`memory_forget` simplified to fact-only deletion**: Replaced separate `episode_id`/`fact_id` parameters with a single `id` parameter that parses type prefixes from `memory_recall` output (e.g. `fact:UUID`). Episode deletion removed from the agent-facing tool — it's an admin operation available via CLI (`graphiti-mem cleanup`). This reduces tool complexity for the LLM and eliminates the class of bugs where bare UUIDs (nodes, facts) were passed as episode IDs.
+- **Search results use type-prefixed UUIDs**: Formatted output now shows `[fact:UUID]` and `[entity:UUID]` instead of bare `[fact]`/`[entity]` labels, so the LLM knows exactly which ID to pass to `memory_forget` and which deletion method applies.
+- **Fact context shows relationship names**: Facts with named edges now display as `Source -[RELATIONSHIP]→ Target` instead of just `Source → Target`.
+
+### Added
+
+- **Configurable UUID polling timeout**: `graphiti.uuidPollIntervalMs` (default 3000) and `graphiti.uuidPollMaxAttempts` (default 30) config options — controls how long the deferred SpiceDB write waits for Graphiti to finish LLM processing after `memory_store`
+- **Episode UUID prefixes**: Graphiti MCP server configured with `EPISODE_ID_PREFIX=epi-` and client-side tracking UUIDs use `tmp-` prefix for disambiguation in logs.
 
 ## 0.2.0 - 2026-02-11
 

@@ -202,8 +202,8 @@ describe("formatResultsForContext", () => {
     ];
 
     const formatted = formatResultsForContext(results);
-    expect(formatted).toContain("1. [entity] Mark is a developer (Mark)");
-    expect(formatted).toContain("2. [fact] Mark got promoted (Mark \u2192 Promotion)");
+    expect(formatted).toContain("1. [entity:n1] Mark is a developer (Mark)");
+    expect(formatted).toContain("2. [fact:f1] Mark got promoted (Mark \u2192 Promotion)");
   });
 });
 
@@ -214,7 +214,7 @@ describe("formatDualResults", () => {
     ];
 
     const formatted = formatDualResults(longTerm, []);
-    expect(formatted).toContain("1. [entity] Mark is a developer (Mark)");
+    expect(formatted).toContain("1. [entity:n1] Mark is a developer (Mark)");
     expect(formatted).not.toContain("Session memories:");
   });
 
@@ -225,7 +225,7 @@ describe("formatDualResults", () => {
 
     const formatted = formatDualResults([], session);
     expect(formatted).toContain("Session memories:");
-    expect(formatted).toContain("1. [fact] Deadline tomorrow");
+    expect(formatted).toContain("1. [fact:f1] Deadline tomorrow");
   });
 
   test("formats both long-term and session with correct numbering", () => {
@@ -238,10 +238,10 @@ describe("formatDualResults", () => {
     ];
 
     const formatted = formatDualResults(longTerm, session);
-    expect(formatted).toContain("1. [entity] Mark is a developer");
-    expect(formatted).toContain("2. [fact] Mark got promoted");
+    expect(formatted).toContain("1. [entity:n1] Mark is a developer");
+    expect(formatted).toContain("2. [fact:f1] Mark got promoted");
     expect(formatted).toContain("Session memories:");
-    expect(formatted).toContain("3. [fact] Deadline tomorrow");
+    expect(formatted).toContain("3. [fact:f2] Deadline tomorrow");
   });
 
   test("returns empty string when both are empty", () => {

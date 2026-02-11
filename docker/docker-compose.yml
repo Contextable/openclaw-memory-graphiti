@@ -80,6 +80,7 @@ services:
       - "${GRAPHITI_PORT:-8000}:8000"    # MCP HTTP endpoint
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - EPISODE_ID_PREFIX=${EPISODE_ID_PREFIX:-epi-}
       - FALKORDB_URI=redis://host.docker.internal:${FALKORDB_PORT:-6379}
     depends_on:
       falkordb:

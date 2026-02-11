@@ -162,4 +162,35 @@ describe("graphitiMemoryConfigSchema", () => {
 
     expect(config.maxCaptureMessages).toBe(10);
   });
+
+  // UUID polling config
+
+  test("applies default UUID polling config", () => {
+    const config = graphitiMemoryConfigSchema.parse({
+      spicedb: { token: "tok" },
+    });
+
+    expect(config.graphiti.uuidPollIntervalMs).toBe(3000);
+    expect(config.graphiti.uuidPollMaxAttempts).toBe(30);
+  });
+
+  test("accepts custom UUID polling config", () => {
+    const config = graphitiMemoryConfigSchema.parse({
+      spicedb: { token: "tok" },
+      graphiti: { uuidPollIntervalMs: 5000, uuidPollMaxAttempts: 60 },
+    });
+
+    expect(config.graphiti.uuidPollIntervalMs).toBe(5000);
+    expect(config.graphiti.uuidPollMaxAttempts).toBe(60);
+  });
+
+  test("ignores invalid UUID polling values (uses defaults)", () => {
+    const config = graphitiMemoryConfigSchema.parse({
+      spicedb: { token: "tok" },
+      graphiti: { uuidPollIntervalMs: -1, uuidPollMaxAttempts: 0 },
+    });
+
+    expect(config.graphiti.uuidPollIntervalMs).toBe(3000);
+    expect(config.graphiti.uuidPollMaxAttempts).toBe(30);
+  });
 });

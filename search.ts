@@ -138,9 +138,10 @@ function nodeToResult(node: GraphitiNode): SearchResult {
 }
 
 function factToResult(fact: GraphitiFact): SearchResult {
-  // Use node names if available, fall back to relationship name or UUIDs
-  const source = fact.source_node_name ?? fact.source_node_uuid ?? "?";
-  const target = fact.target_node_name ?? fact.target_node_uuid ?? "?";
+  // Use node names only — never expose raw node UUIDs in the formatted output.
+  // Bare UUIDs in context strings cause LLMs to confuse node IDs with fact/episode IDs.
+  const source = fact.source_node_name ?? "?";
+  const target = fact.target_node_name ?? "?";
   const context = fact.name ? `${source} -[${fact.name}]→ ${target}` : `${source} → ${target}`;
   return {
     type: "fact",
@@ -164,12 +165,7 @@ export function formatResultsForContext(results: SearchResult[]): string {
     return "";
   }
 
-  return results
-    .map((r, i) => {
-      const typeLabel = r.type === "node" ? "entity" : "fact";
-      return `${i + 1}. [${typeLabel}] ${r.summary} (${r.context})`;
-    })
-    .join("\n");
+  return results.map((r, i) => formatResultLine(r, i + 1)).join("\n");
 }
 
 /**
@@ -185,20 +181,28 @@ export function formatDualResults(
 
   if (longTermResults.length > 0) {
     for (const r of longTermResults) {
-      const typeLabel = r.type === "node" ? "entity" : "fact";
-      parts.push(`${idx++}. [${typeLabel}] ${r.summary} (${r.context})`);
+      parts.push(formatResultLine(r, idx++));
     }
   }
 
   if (sessionResults.length > 0) {
     parts.push("Session memories:");
     for (const r of sessionResults) {
-      const typeLabel = r.type === "node" ? "entity" : "fact";
-      parts.push(`${idx++}. [${typeLabel}] ${r.summary} (${r.context})`);
+      parts.push(formatResultLine(r, idx++));
     }
   }
 
   return parts.join("\n");
+}
+
+/**
+ * Format a single search result line with type-prefixed UUID.
+ * e.g. "[fact:da8650cb-...] Eric's birthday is Dec 17th (Eric -[HAS_BIRTHDAY]→ Dec 17th)"
+ * The type prefix tells the LLM which deletion method to use.
+ */
+function formatResultLine(r: SearchResult, idx: number): string {
+  const typeLabel = r.type === "node" ? "entity" : "fact";
+  return `${idx}. [${typeLabel}:${r.uuid}] ${r.summary} (${r.context})`;
 }
 
 /**
