@@ -65,7 +65,7 @@ function createMockContext(): CliContext {
 // ============================================================================
 
 describe("registerCommands", () => {
-  test("registers all 8 subcommands on the passed-in command", () => {
+  test("registers all 10 subcommands on the passed-in command", () => {
     const { program, commands } = createMockProgram();
     const ctx = createMockContext();
 
@@ -78,8 +78,10 @@ describe("registerCommands", () => {
     expect(commands).toContain("groups");
     expect(commands).toContain("add-member");
     expect(commands).toContain("cleanup");
+    expect(commands).toContain("fact");
+    expect(commands).toContain("clear-graph");
     expect(commands).toContain("import");
-    expect(commands).toHaveLength(8);
+    expect(commands).toHaveLength(10);
   });
 
   test("registers action handlers for all subcommands", () => {
@@ -95,6 +97,8 @@ describe("registerCommands", () => {
     expect(typeof actions["groups"]).toBe("function");
     expect(typeof actions["add-member"]).toBe("function");
     expect(typeof actions["cleanup"]).toBe("function");
+    expect(typeof actions["fact"]).toBe("function");
+    expect(typeof actions["clear-graph"]).toBe("function");
     expect(typeof actions["import"]).toBe("function");
   });
 
