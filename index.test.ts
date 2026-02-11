@@ -830,6 +830,150 @@ describe("memory-graphiti plugin", () => {
     consoleSpy.mockRestore();
   });
 
+  // ==========================================================================
+  // memory_forget: fact deletion
+  // ==========================================================================
+
+  test("memory_forget with fact_id fetches fact, checks group write, deletes edge", async () => {
+    const factData = {
+      uuid: "fact-abc",
+      fact: "Mark works at Acme",
+      source_node_name: "Mark",
+      target_node_name: "Acme",
+      group_id: "main",
+      created_at: "2026-01-15",
+    };
+
+    // Custom mock: get_entity_edge returns fact data, delete_entity_edge returns ok
+    mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
+      if (typeof url === "string" && url.endsWith("/health")) {
+        return Promise.resolve(new Response("OK", { status: 200 }));
+      }
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      if (body.method === "initialize") {
+        return Promise.resolve(makeSseResponse({
+          jsonrpc: "2.0", id: body.id,
+          result: { capabilities: { tools: {} }, serverInfo: { name: "Graphiti", version: "1.0" }, protocolVersion: "2024-11-05" },
+        }));
+      }
+      if (body.method === "notifications/initialized") {
+        return Promise.resolve(new Response(null, { status: 202 }));
+      }
+      // get_entity_edge returns the fact as a flat object
+      if (body.params?.name === "get_entity_edge") {
+        return Promise.resolve(makeSseResponse({
+          jsonrpc: "2.0", id: body.id,
+          result: { content: [{ type: "text", text: JSON.stringify(factData) }], isError: false },
+        }));
+      }
+      // delete_entity_edge returns ok
+      return Promise.resolve(makeSseResponse({
+        jsonrpc: "2.0", id: body.id || 1,
+        result: { content: [{ type: "text", text: '{"message":"deleted"}' }], isError: false },
+      }));
+    });
+
+    const { default: plugin } = await import("./index.js");
+    plugin.register(mockApi);
+
+    const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
+    const result = await forgetTool.execute("call-fact-del", { fact_id: "fact-abc" });
+
+    expect(result.details.action).toBe("deleted");
+    expect(result.details.factId).toBe("fact-abc");
+
+    // Verify get_entity_edge was called
+    const getEdgeCalls = mockFetch.mock.calls.filter((call) => {
+      if (!call[1]?.body) return false;
+      const body = JSON.parse(call[1].body as string);
+      return body.params?.name === "get_entity_edge";
+    });
+    expect(getEdgeCalls).toHaveLength(1);
+
+    // Verify delete_entity_edge was called
+    const deleteEdgeCalls = mockFetch.mock.calls.filter((call) => {
+      if (!call[1]?.body) return false;
+      const body = JSON.parse(call[1].body as string);
+      return body.params?.name === "delete_entity_edge";
+    });
+    expect(deleteEdgeCalls).toHaveLength(1);
+  });
+
+  test("memory_forget with fact_id denies when no write permission on group", async () => {
+    const factData = {
+      uuid: "fact-denied",
+      fact: "Secret fact",
+      group_id: "restricted-group",
+      created_at: "2026-01-15",
+    };
+
+    mockFetch.mockImplementation((url: string | URL, init?: RequestInit) => {
+      if (typeof url === "string" && url.endsWith("/health")) {
+        return Promise.resolve(new Response("OK", { status: 200 }));
+      }
+      const body = init?.body ? JSON.parse(init.body as string) : {};
+      if (body.method === "initialize") {
+        return Promise.resolve(makeSseResponse({
+          jsonrpc: "2.0", id: body.id,
+          result: { capabilities: { tools: {} }, serverInfo: { name: "Graphiti", version: "1.0" }, protocolVersion: "2024-11-05" },
+        }));
+      }
+      if (body.method === "notifications/initialized") {
+        return Promise.resolve(new Response(null, { status: 202 }));
+      }
+      if (body.params?.name === "get_entity_edge") {
+        return Promise.resolve(makeSseResponse({
+          jsonrpc: "2.0", id: body.id,
+          result: { content: [{ type: "text", text: JSON.stringify(factData) }], isError: false },
+        }));
+      }
+      return Promise.resolve(makeSseResponse({
+        jsonrpc: "2.0", id: body.id || 1,
+        result: { content: [{ type: "text", text: '{"message":"ok"}' }], isError: false },
+      }));
+    });
+
+    // Deny contribute permission on the fact's group
+    const { v1 } = await import("@authzed/authzed-node");
+    const mockClient = (v1.NewClient as ReturnType<typeof vi.fn>)();
+    mockClient.promises.checkPermission.mockImplementation((req: Record<string, unknown>) => {
+      if (req.permission === "contribute") {
+        return Promise.resolve({ permissionship: 1 }); // NO_PERMISSION
+      }
+      return Promise.resolve({ permissionship: 2 });
+    });
+
+    const { default: plugin } = await import("./index.js");
+    plugin.register(mockApi);
+
+    const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
+    const result = await forgetTool.execute("call-fact-denied", { fact_id: "fact-denied" });
+
+    expect(result.details.action).toBe("denied");
+    expect(result.details.factId).toBe("fact-denied");
+
+    // Verify delete_entity_edge was NOT called
+    const deleteEdgeCalls = mockFetch.mock.calls.filter((call) => {
+      if (!call[1]?.body) return false;
+      const body = JSON.parse(call[1].body as string);
+      return body.params?.name === "delete_entity_edge";
+    });
+    expect(deleteEdgeCalls).toHaveLength(0);
+  });
+
+  test("memory_forget with neither episode_id nor fact_id returns error", async () => {
+    setupGraphitiMock();
+
+    const { default: plugin } = await import("./index.js");
+    plugin.register(mockApi);
+
+    const forgetTool = registeredTools.find((t) => t.opts?.name === "memory_forget")?.tool;
+    const result = await forgetTool.execute("call-no-id", {});
+
+    expect(result.details.action).toBe("error");
+    expect(result.content[0].text).toContain("Either episode_id or fact_id must be provided");
+  });
+
   test("auto-recall performs dual search with session and long-term groups", async () => {
     mockApi.pluginConfig.autoRecall = true;
 
