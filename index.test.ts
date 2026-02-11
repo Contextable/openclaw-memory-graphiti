@@ -332,6 +332,29 @@ describe("memory-graphiti plugin", () => {
     expect(result.details.longTerm).toBe(false);
   });
 
+  test("session group ID sanitizes colons in sessionKey", async () => {
+    setupGraphitiMock('{"message":"queued"}');
+
+    mockApi.pluginConfig.autoRecall = true;
+
+    const { default: plugin } = await import("./index.js");
+    plugin.register(mockApi);
+
+    // OpenClaw gateway sends sessionKey like "agent:main:main" — colons are invalid in Graphiti group_ids
+    const beforeHook = registeredHooks["before_agent_start"]?.[0];
+    if (beforeHook) {
+      await beforeHook({ prompt: "test" }, { sessionKey: "agent:main:main" });
+    }
+
+    const storeTool = registeredTools.find((t) => t.opts?.name === "memory_store")?.tool;
+    const result = await storeTool.execute("call-sanitized", {
+      content: "Session with colons in key",
+      longTerm: false,
+    });
+
+    expect(result.details.groupId).toBe("session-agent-main-main");
+  });
+
   test("memory_forget tool checks permission before deleting", async () => {
     setupGraphitiMock('{"message":"deleted"}');
 
