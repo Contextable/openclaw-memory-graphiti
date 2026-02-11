@@ -27,6 +27,8 @@ export type SearchOptions = {
   limit?: number;
   searchNodes?: boolean;
   searchFacts?: boolean;
+  entityTypes?: string[];
+  centerNodeUuid?: string;
 };
 
 // ============================================================================
@@ -41,7 +43,15 @@ export async function searchAuthorizedMemories(
   graphiti: GraphitiClient,
   options: SearchOptions,
 ): Promise<SearchResult[]> {
-  const { query, groupIds, limit = 10, searchNodes = true, searchFacts = true } = options;
+  const {
+    query,
+    groupIds,
+    limit = 10,
+    searchNodes = true,
+    searchFacts = true,
+    entityTypes,
+    centerNodeUuid,
+  } = options;
 
   if (groupIds.length === 0) {
     return [];
@@ -52,10 +62,10 @@ export async function searchAuthorizedMemories(
 
   for (const groupId of groupIds) {
     if (searchNodes) {
-      promises.push(searchNodesForGroup(graphiti, query, groupId, limit));
+      promises.push(searchNodesForGroup(graphiti, query, groupId, limit, entityTypes));
     }
     if (searchFacts) {
-      promises.push(searchFactsForGroup(graphiti, query, groupId, limit));
+      promises.push(searchFactsForGroup(graphiti, query, groupId, limit, centerNodeUuid));
     }
   }
 
@@ -99,8 +109,9 @@ async function searchNodesForGroup(
   query: string,
   groupId: string,
   limit: number,
+  entityTypes?: string[],
 ): Promise<SearchResult[]> {
-  const nodes = await graphiti.searchNodes({ query, group_id: groupId, limit });
+  const nodes = await graphiti.searchNodes({ query, group_id: groupId, limit, entity_types: entityTypes });
   return nodes.map(nodeToResult);
 }
 
@@ -109,8 +120,9 @@ async function searchFactsForGroup(
   query: string,
   groupId: string,
   limit: number,
+  centerNodeUuid?: string,
 ): Promise<SearchResult[]> {
-  const facts = await graphiti.searchFacts({ query, group_id: groupId, limit });
+  const facts = await graphiti.searchFacts({ query, group_id: groupId, limit, center_node_uuid: centerNodeUuid });
   return facts.map(factToResult);
 }
 

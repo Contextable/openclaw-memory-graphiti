@@ -340,26 +340,28 @@ describeLive("e2e: Graphiti + SpiceDB integration", () => {
     });
     if (batchWriteToken) lastWriteToken = batchWriteToken;
 
-    // Wait for entity extraction (batch episode takes longer, ~15-20s)
-    await sleep(20000);
-
-    // Search for entities that should have been extracted
-    const sarahResults = await searchAuthorizedMemories(graphiti, {
-      query: "Sarah Chen React migration",
-      groupIds: [TEST_GROUP],
-      limit: 10,
-    });
+    // Poll for entity extraction — when prior tests have queued episodes in the
+    // same group, Graphiti's extraction queue may be backed up beyond a fixed sleep.
+    let sarahResults: Awaited<ReturnType<typeof searchAuthorizedMemories>> = [];
+    let mentions = false;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await sleep(5000);
+      sarahResults = await searchAuthorizedMemories(graphiti, {
+        query: "Sarah Chen React migration",
+        groupIds: [TEST_GROUP],
+        limit: 10,
+      });
+      mentions = sarahResults.some(
+        (r) =>
+          r.summary.toLowerCase().includes("sarah") ||
+          r.summary.toLowerCase().includes("react") ||
+          r.summary.toLowerCase().includes("next") ||
+          r.context.toLowerCase().includes("sarah"),
+      );
+      if (mentions) break;
+    }
 
     expect(sarahResults.length).toBeGreaterThan(0);
-
-    // Should find something about Sarah, React, or Next.js
-    const mentions = sarahResults.some(
-      (r) =>
-        r.summary.toLowerCase().includes("sarah") ||
-        r.summary.toLowerCase().includes("react") ||
-        r.summary.toLowerCase().includes("next") ||
-        r.context.toLowerCase().includes("sarah"),
-    );
     expect(mentions).toBe(true);
   }, 60000);
 

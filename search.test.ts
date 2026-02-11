@@ -17,6 +17,10 @@ function mockGraphiti(overrides?: Partial<GraphitiClient>): GraphitiClient {
     deleteEpisode: vi.fn().mockResolvedValue(undefined),
     searchNodes: vi.fn().mockResolvedValue([]),
     searchFacts: vi.fn().mockResolvedValue([]),
+    getEntityEdge: vi.fn().mockResolvedValue({}),
+    deleteEntityEdge: vi.fn().mockResolvedValue(undefined),
+    clearGraph: vi.fn().mockResolvedValue(undefined),
+    close: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   } as unknown as GraphitiClient;
 }
@@ -151,6 +155,38 @@ describe("searchAuthorizedMemories", () => {
 
     expect(searchNodes).toHaveBeenCalledTimes(1);
     expect(searchFacts).not.toHaveBeenCalled();
+  });
+
+  test("forwards entityTypes to searchNodes calls", async () => {
+    const searchNodes = vi.fn().mockResolvedValue([]);
+    const searchFacts = vi.fn().mockResolvedValue([]);
+    const graphiti = mockGraphiti({ searchNodes, searchFacts });
+
+    await searchAuthorizedMemories(graphiti, {
+      query: "test",
+      groupIds: ["g1"],
+      entityTypes: ["Preference", "Organization"],
+    });
+
+    expect(searchNodes).toHaveBeenCalledWith(
+      expect.objectContaining({ entity_types: ["Preference", "Organization"] }),
+    );
+  });
+
+  test("forwards centerNodeUuid to searchFacts calls", async () => {
+    const searchNodes = vi.fn().mockResolvedValue([]);
+    const searchFacts = vi.fn().mockResolvedValue([]);
+    const graphiti = mockGraphiti({ searchNodes, searchFacts });
+
+    await searchAuthorizedMemories(graphiti, {
+      query: "test",
+      groupIds: ["g1"],
+      centerNodeUuid: "node-uuid-123",
+    });
+
+    expect(searchFacts).toHaveBeenCalledWith(
+      expect.objectContaining({ center_node_uuid: "node-uuid-123" }),
+    );
   });
 });
 

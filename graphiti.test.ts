@@ -628,4 +628,148 @@ describe("GraphitiClient", () => {
       }),
     ).rejects.toThrow("Graphiti MCP init failed: 503");
   });
+
+  // --------------------------------------------------------------------------
+  // Entity Edge Operations
+  // --------------------------------------------------------------------------
+
+  test("getEntityEdge sends uuid and parses single fact", async () => {
+    const fact = {
+      uuid: "edge-1",
+      fact: "Mark works at Acme",
+      source_node_name: "Mark",
+      target_node_name: "Acme",
+      group_id: "family",
+      created_at: "2026-01-15",
+    };
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    mockInit(fetchMock);
+    fetchMock.mockResolvedValueOnce(
+      sseResponse({
+        jsonrpc: "2.0",
+        id: 2,
+        result: {
+          content: [{ type: "text", text: JSON.stringify(fact) }],
+          isError: false,
+        },
+      }),
+    );
+
+    const result = await client.getEntityEdge("edge-1");
+    expect(result.uuid).toBe("edge-1");
+    expect(result.fact).toBe("Mark works at Acme");
+
+    const body = JSON.parse(fetchMock.mock.calls[2][1]!.body as string);
+    expect(body.params.name).toBe("get_entity_edge");
+    expect(body.params.arguments.uuid).toBe("edge-1");
+  });
+
+  test("deleteEntityEdge sends uuid", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    mockInit(fetchMock);
+    fetchMock.mockResolvedValueOnce(
+      sseResponse({
+        jsonrpc: "2.0",
+        id: 2,
+        result: { content: [{ type: "text", text: '{"message":"deleted"}' }], isError: false },
+      }),
+    );
+
+    await client.deleteEntityEdge("edge-1");
+
+    const body = JSON.parse(fetchMock.mock.calls[2][1]!.body as string);
+    expect(body.params.name).toBe("delete_entity_edge");
+    expect(body.params.arguments.uuid).toBe("edge-1");
+  });
+
+  test("clearGraph sends group_ids when provided", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    mockInit(fetchMock);
+    fetchMock.mockResolvedValueOnce(
+      sseResponse({
+        jsonrpc: "2.0",
+        id: 2,
+        result: { content: [{ type: "text", text: '{"message":"cleared"}' }], isError: false },
+      }),
+    );
+
+    await client.clearGraph(["g1", "g2"]);
+
+    const body = JSON.parse(fetchMock.mock.calls[2][1]!.body as string);
+    expect(body.params.name).toBe("clear_graph");
+    expect(body.params.arguments.group_ids).toEqual(["g1", "g2"]);
+  });
+
+  test("clearGraph sends empty args when no groupIds", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    mockInit(fetchMock);
+    fetchMock.mockResolvedValueOnce(
+      sseResponse({
+        jsonrpc: "2.0",
+        id: 2,
+        result: { content: [{ type: "text", text: '{"message":"cleared"}' }], isError: false },
+      }),
+    );
+
+    await client.clearGraph();
+
+    const body = JSON.parse(fetchMock.mock.calls[2][1]!.body as string);
+    expect(body.params.name).toBe("clear_graph");
+    expect(body.params.arguments.group_ids).toBeUndefined();
+  });
+
+  // --------------------------------------------------------------------------
+  // New search parameters
+  // --------------------------------------------------------------------------
+
+  test("searchNodes passes entity_types parameter", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    mockInit(fetchMock);
+    fetchMock.mockResolvedValueOnce(
+      sseResponse({
+        jsonrpc: "2.0",
+        id: 2,
+        result: { content: [{ type: "text", text: '{"message":"ok","nodes":[]}' }], isError: false },
+      }),
+    );
+
+    await client.searchNodes({ query: "test", group_id: "g1", entity_types: ["Preference", "Organization"] });
+
+    const body = JSON.parse(fetchMock.mock.calls[2][1]!.body as string);
+    expect(body.params.arguments.entity_types).toEqual(["Preference", "Organization"]);
+  });
+
+  test("searchNodes omits entity_types when empty", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    mockInit(fetchMock);
+    fetchMock.mockResolvedValueOnce(
+      sseResponse({
+        jsonrpc: "2.0",
+        id: 2,
+        result: { content: [{ type: "text", text: '{"message":"ok","nodes":[]}' }], isError: false },
+      }),
+    );
+
+    await client.searchNodes({ query: "test", group_id: "g1", entity_types: [] });
+
+    const body = JSON.parse(fetchMock.mock.calls[2][1]!.body as string);
+    expect(body.params.arguments.entity_types).toBeUndefined();
+  });
+
+  test("searchFacts passes center_node_uuid parameter", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    mockInit(fetchMock);
+    fetchMock.mockResolvedValueOnce(
+      sseResponse({
+        jsonrpc: "2.0",
+        id: 2,
+        result: { content: [{ type: "text", text: '{"message":"ok","facts":[]}' }], isError: false },
+      }),
+    );
+
+    await client.searchFacts({ query: "test", group_id: "g1", center_node_uuid: "node-uuid-123" });
+
+    const body = JSON.parse(fetchMock.mock.calls[2][1]!.body as string);
+    expect(body.params.arguments.center_node_uuid).toBe("node-uuid-123");
+  });
 });
