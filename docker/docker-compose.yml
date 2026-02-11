@@ -81,7 +81,7 @@ services:
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - EPISODE_ID_PREFIX=${EPISODE_ID_PREFIX:-epi-}
-      - FALKORDB_URI=redis://host.docker.internal:${FALKORDB_PORT:-6379}
+      - FALKORDB_URI=redis://falkordb:6379
     depends_on:
       falkordb:
         condition: service_healthy

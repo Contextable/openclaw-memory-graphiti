@@ -65,7 +65,32 @@ const memoryGraphitiPlugin = {
     const graphiti = new GraphitiClient(cfg.graphiti.endpoint);
     graphiti.uuidPollIntervalMs = cfg.graphiti.uuidPollIntervalMs;
     graphiti.uuidPollMaxAttempts = cfg.graphiti.uuidPollMaxAttempts;
+    if (!cfg.spicedb.token) {
+      throw new Error(
+        "openclaw-memory-graphiti: spicedb.token is not configured. " +
+        "Set it in plugins.entries.openclaw-memory-graphiti.config.spicedb.token " +
+        "in ~/.openclaw/openclaw.json",
+      );
+    }
     const spicedb = new SpiceDbClient(cfg.spicedb);
+
+    // Catch unhandled rejections from @grpc/grpc-js internals during initial
+    // connection setup. The gRPC load balancer state machine can emit promise
+    // rejections that bypass our try/catch blocks and crash the process.
+    const grpcRejectionHandler = (reason: unknown) => {
+      const msg = String(reason);
+      if (msg.includes("generateMetadata") || msg.includes("grpc")) {
+        api.logger.warn(`openclaw-memory-graphiti: suppressed grpc-js rejection: ${msg}`);
+      } else {
+        // Re-throw non-grpc rejections so they surface normally
+        throw reason;
+      }
+    };
+    process.on("unhandledRejection", grpcRejectionHandler);
+    const grpcGuardTimer = setTimeout(() => {
+      process.removeListener("unhandledRejection", grpcRejectionHandler);
+    }, 10_000);
+    grpcGuardTimer.unref(); // Don't keep the process alive for this timer
 
     const currentSubject: Subject = {
       type: cfg.subjectType,
@@ -735,6 +760,8 @@ const memoryGraphitiPlugin = {
         );
       },
       stop() {
+        clearTimeout(grpcGuardTimer);
+        process.removeListener("unhandledRejection", grpcRejectionHandler);
         api.logger.info("openclaw-memory-graphiti: stopped");
       },
     });

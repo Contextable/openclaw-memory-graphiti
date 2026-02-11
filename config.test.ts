@@ -79,18 +79,21 @@ describe("graphitiMemoryConfigSchema", () => {
     }).toThrow("Environment variable NONEXISTENT_VAR is not set");
   });
 
-  test("throws on missing spicedb config", () => {
-    expect(() => {
-      graphitiMemoryConfigSchema.parse({});
-    }).toThrow("spicedb.token is required");
+  test("defaults spicedb config when omitted (installer-friendly)", () => {
+    const config = graphitiMemoryConfigSchema.parse({});
+
+    expect(config.spicedb.endpoint).toBe("localhost:50051");
+    expect(config.spicedb.token).toBe("");
+    expect(config.spicedb.insecure).toBe(true);
   });
 
-  test("throws on missing spicedb.token", () => {
-    expect(() => {
-      graphitiMemoryConfigSchema.parse({
-        spicedb: { endpoint: "localhost:50051" },
-      });
-    }).toThrow("spicedb.token is required");
+  test("defaults spicedb.token to empty string when omitted", () => {
+    const config = graphitiMemoryConfigSchema.parse({
+      spicedb: { endpoint: "custom:50051" },
+    });
+
+    expect(config.spicedb.endpoint).toBe("custom:50051");
+    expect(config.spicedb.token).toBe("");
   });
 
   test("throws on unknown top-level keys", () => {

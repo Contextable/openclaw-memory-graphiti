@@ -19,6 +19,7 @@ export type GraphitiMemoryConfig = {
 };
 
 const DEFAULT_SPICEDB_ENDPOINT = "localhost:50051";
+const DEFAULT_SPICEDB_TOKEN = "";
 const DEFAULT_GRAPHITI_ENDPOINT = "http://localhost:8000";
 const DEFAULT_GROUP_ID = "main";
 const DEFAULT_UUID_POLL_INTERVAL_MS = 3000;
@@ -68,10 +69,7 @@ export const graphitiMemoryConfigSchema = {
     );
 
     // SpiceDB config
-    const spicedb = cfg.spicedb as Record<string, unknown> | undefined;
-    if (!spicedb || typeof spicedb.token !== "string") {
-      throw new Error("spicedb.token is required");
-    }
+    const spicedb = (cfg.spicedb as Record<string, unknown>) ?? {};
     assertAllowedKeys(spicedb, ["endpoint", "token", "insecure"], "spicedb config");
 
     // Graphiti config
@@ -87,7 +85,7 @@ export const graphitiMemoryConfigSchema = {
       spicedb: {
         endpoint:
           typeof spicedb.endpoint === "string" ? spicedb.endpoint : DEFAULT_SPICEDB_ENDPOINT,
-        token: resolveEnvVars(spicedb.token),
+        token: typeof spicedb.token === "string" ? resolveEnvVars(spicedb.token) : DEFAULT_SPICEDB_TOKEN,
         insecure: spicedb.insecure !== false,
       },
       graphiti: {
