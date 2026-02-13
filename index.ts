@@ -249,7 +249,7 @@ const memoryGraphitiPlugin = {
             Type.Array(Type.String(), { description: "Person/agent IDs involved in this memory" }),
           ),
           group_id: Type.Optional(
-            Type.String({ description: "Target group for this memory (default: configured group)" }),
+            Type.String({ description: "Target group ID (optional, uses your default group if omitted)" }),
           ),
           longTerm: Type.Optional(
             Type.Boolean({ description: "Store as long-term memory (default: true). Set to false for session-scoped." }),
@@ -270,10 +270,22 @@ const memoryGraphitiPlugin = {
             longTerm?: boolean;
           };
 
+          // Sanitize group_id: SpiceDB requires alphanumeric + _|\\-=+ only (no spaces!)
+          const sanitizeGroupId = (id?: string): string | undefined => {
+            if (!id) return undefined;
+            const trimmed = id.trim();
+            // If it looks like a description rather than an ID, ignore it
+            if (trimmed.includes(' ') || trimmed.toLowerCase().includes('configured')) {
+              return undefined;
+            }
+            return trimmed;
+          };
+
           // Resolve target group: explicit > longTerm flag > default
           let targetGroupId: string;
-          if (group_id) {
-            targetGroupId = group_id;
+          const sanitizedGroupId = sanitizeGroupId(group_id);
+          if (sanitizedGroupId) {
+            targetGroupId = sanitizedGroupId;
           } else if (!longTerm && currentSessionId) {
             targetGroupId = sessionGroupId(currentSessionId);
           } else {

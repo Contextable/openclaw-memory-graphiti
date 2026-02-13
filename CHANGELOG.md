@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Models interpret tool parameter descriptions as literal values, causing SpiceDB validation errors**: The `memory_store` tool's `group_id` parameter had description text `"(default: configured group)"` which models (Groq Llama, GPT-4, etc.) interpreted literally, passing `" configured group"` as the actual value. SpiceDB's ObjectId validation (`^(([a-zA-Z0-9/_|\\-=+]{1,})|\\*)$`) rejects values with spaces, causing all `memory_store` calls to fail with `INVALID_ARGUMENT`. Fixed by: (1) changing description to `"Target group ID (optional, uses your default group if omitted)"` to avoid confusion, and (2) adding `sanitizeGroupId()` validation that detects and ignores values containing spaces or the word "configured", falling back to the configured `defaultGroupId`.
+
 ## 0.2.6 - 2026-02-11
 
 ### Fixed
