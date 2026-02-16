@@ -12,6 +12,7 @@
 
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { Type } from "@sinclair/typebox";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -117,9 +118,9 @@ const memoryGraphitiPlugin = {
         name: "memory_recall",
         label: "Memory Recall",
         description:
-          "Search through memories using the knowledge graph. Returns entities and facts the current user is authorized to see. Supports session, long-term, or combined scope.",
+          "Search through memories using the knowledge graph. Returns entities and facts the current user is authorized to see. Supports session, long-term, or combined scope. REQUIRES a search query.",
         parameters: Type.Object({
-          query: Type.String({ description: "Search query" }),
+          query: Type.String({ description: "REQUIRED: Search query for semantic matching" }),
           limit: Type.Optional(Type.Number({ description: "Max results (default: 10)" })),
           scope: Type.Optional(
             Type.Union(
@@ -324,8 +325,10 @@ const memoryGraphitiPlugin = {
           }
 
           // 1. Add episode to Graphiti
+          // Generate unique episode name to avoid collisions
+          const episodeName = `memory_${randomUUID()}`;
           const result = await graphiti.addEpisode({
-            name: `memory_${Date.now()}`,
+            name: episodeName,
             episode_body: content,
             source_description,
             group_id: targetGroupId,
@@ -694,8 +697,10 @@ const memoryGraphitiPlugin = {
             }
           }
 
+          // Generate unique episode name to avoid collisions
+          const episodeName = `auto_capture_${randomUUID()}`;
           const result = await graphiti.addEpisode({
-            name: `auto_capture_${Date.now()}`,
+            name: episodeName,
             episode_body: episodeBody,
             source_description: "auto-captured conversation",
             group_id: targetGroupId,

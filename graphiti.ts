@@ -80,7 +80,7 @@ export class GraphitiClient {
   /** Polling interval (ms) for UUID resolution after addEpisode. */
   uuidPollIntervalMs = 3000;
   /** Max polling attempts for UUID resolution (total wait = interval * attempts). */
-  uuidPollMaxAttempts = 30;
+  uuidPollMaxAttempts = 80;
 
   constructor(private readonly endpoint: string) {}
 
