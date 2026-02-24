@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+## 0.2.7 - 2026-02-24
+
+### Fixed
+
+- **E2E tests fail with local models (nemotron/Ollama)**: FalkorDB's RediSearch parser treats certain words in group IDs as syntax operators, causing `RediSearch: Syntax error` failures during episode processing. Changed `TEST_SESSION_GROUP` from `session-e2e_*` → `secondary{timestamp}` (alphanumeric-only) to avoid triggering syntax errors on words like `"session"`, `"temp"`, `"grp2"`, etc.
+- **E2E test timeouts too short for local LLM processing**: Increased test timeouts from 15-60s to 120-180s and simplified episode content from complex multi-entity scenarios to 1-2 entities ("Alice likes pizza") for faster processing. Added polling instead of fixed waits for session-scoped episode test. All 13 e2e tests now pass with nemotron running at 30-90s processing time per episode.
+
 ## 0.2.6 - 2026-02-11
 
 ### Fixed
@@ -12,10 +21,17 @@
 
 - **`plugins install` still fails — JSON Schema in `openclaw.plugin.json` had `required` fields** (#33): The installer validates against the JSON Schema in `openclaw.plugin.json` (via ajv) *before* the TypeScript config parser runs. Removed `"required": ["spicedb"]` at the top level and `"required": ["token"]` inside the spicedb sub-schema. Added tests that walk the entire JSON Schema tree to prevent regressions.
 
-## 0.2.4 - 2026-02-11
+## 0.2.4 - 2026-02-13
+
+### Added
+
+- **Local models setup guide** (`docs/LOCAL_MODELS_SETUP.md`): Comprehensive guide for running Graphiti MCP server with fully local models (Ollama, vLLM) for privacy-focused or cost-controlled deployments. Documents the pending upstream PR ([getzep/graphiti#1227](https://github.com/getzep/graphiti/pull/1227)) and provides setup instructions for using the Contextable/graphiti fork until changes are merged.
 
 ### Fixed
 
+- **Episode name collision race condition in concurrent memory stores**: Episode names were generated using `Date.now()` (e.g., `memory_1770911378846`), which could collide if multiple `memory_store` or auto-capture operations happened within the same millisecond. The UUID resolver would match the first episode to appear, causing subsequent operations with duplicate names to fail or resolve to the wrong episode. Fixed by generating unique episode names using `randomUUID()` (e.g., `memory_f7b3c8a1-4d2e-4f9b-8e1a-9c6d5b2a7f3e`), eliminating collision risk in high-throughput scenarios.
+- **UUID resolution timeout too short for local LLM processing**: Increased polling timeout from 90 seconds to 240 seconds (80 attempts × 3s interval). Local models (especially on CPU or with complex extraction tasks) can take significantly longer than OpenAI's gpt-4o-mini, and the 90s timeout was insufficient for nemotron-3-nano:30b running entity extraction. The new 4-minute window accommodates slower local inference while still providing reasonable failure detection.
+- **Models interpret tool parameter descriptions as literal values, causing SpiceDB validation errors**: The `memory_store` tool's `group_id` parameter had description text `"(default: configured group)"` which models (Groq Llama, GPT-4, etc.) interpreted literally, passing `" configured group"` as the actual value. SpiceDB's ObjectId validation (`^(([a-zA-Z0-9/_|\\-=+]{1,})|\\*)$`) rejects values with spaces, causing all `memory_store` calls to fail with `INVALID_ARGUMENT`. Fixed by: (1) changing description to `"Target group ID (optional, uses your default group if omitted)"` to avoid confusion, and (2) adding `sanitizeGroupId()` validation that detects and ignores values containing spaces or the word "configured", falling back to the configured `defaultGroupId`.
 - **`plugins install` fails with "must have required property 'spicedb'"** (#33): Made the TypeScript config parser accept empty `config: {}` by defaulting all SpiceDB fields. The `spicedb.token` defaults to an empty string so install succeeds; on startup, `register()` checks for an empty token and throws a clear error directing the user to configure it in `~/.openclaw/openclaw.json`.
 - **grpc-js unhandled rejection crashes gateway on startup**: The `@grpc/grpc-js` load balancer state machine can emit unhandled promise rejections during initial SpiceDB connection setup, crashing the Node.js process. Added a temporary `process.on('unhandledRejection')` guard that catches grpc-related rejections for the first 10 seconds after client creation, with proper cleanup in `stop()`.
 - **Docker Compose Graphiti uses wrong FalkorDB host**: `FALKORDB_URI` in docker-compose.yml pointed to `host.docker.internal` instead of the `falkordb` service name, breaking inter-container connectivity.

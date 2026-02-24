@@ -5,15 +5,25 @@
 # Services run in the background; logs go to .dev/logs/.
 # PID files are written to .dev/pids/.
 #
-# Environment variables (all optional):
-#   OPENAI_API_KEY        Required by Graphiti for entity extraction
+# Environment variables:
+#   OPENAI_API_KEY        Required by Graphiti for entity extraction (unless using local models)
 #   SPICEDB_TOKEN         Pre-shared key (default: dev_token)
 #   SPICEDB_PORT          gRPC port (default: 50051)
 #   SPICEDB_DATASTORE     "memory" (default) or "postgres"
 #   SPICEDB_DB_URI        Postgres connection URI (when SPICEDB_DATASTORE=postgres)
 #   FALKORDB_PORT         Redis port (default: 6379)
 #   GRAPHITI_PORT         HTTP port (default: 8000)
+#   GRAPHITI_PATH         Path to Graphiti git clone (default: ../graphiti)
 #   EPISODE_ID_PREFIX     Prefix for Graphiti episode UUIDs (default: epi-)
+#
+# Optional: Use local models instead of OpenAI
+#   LLM_PROVIDER          "openai_generic" (enables custom LLM endpoint)
+#   LLM_MODEL             Model name (e.g., "nvidia/Qwen3-Next-80B-A3B-Instruct-NVFP4")
+#   LLM_API_URL           Custom LLM endpoint (e.g., "http://dgx-spark:8000/v1")
+#   EMBEDDER_MODEL        Embedding model (e.g., "nomic-embed-text:v1.5")
+#   EMBEDDER_DIMENSIONS   Embedding dimensions (e.g., 768 for nomic, 1536 for OpenAI)
+#   EMBEDDER_API_URL      Custom embedder endpoint (e.g., "http://minisforum:11434/v1")
+#   RERANKER_PROVIDER     Reranker provider: "openai", "gemini", or "bge" (default: bge)
 # -------------------------------------------------------------------
 set -euo pipefail
 
@@ -35,6 +45,17 @@ SPICEDB_DATASTORE="${SPICEDB_DATASTORE:-memory}"
 SPICEDB_DB_URI="${SPICEDB_DB_URI:-postgres://spicedb:spicedb_dev@127.0.0.1:5432/spicedb?sslmode=disable}"
 FALKORDB_PORT="${FALKORDB_PORT:-6379}"
 GRAPHITI_PORT="${GRAPHITI_PORT:-8000}"
+GRAPHITI_PATH="${GRAPHITI_PATH:-$PROJECT_DIR/../graphiti}"
+
+# Local model endpoints (for your dev environment)
+LLM_PROVIDER="${LLM_PROVIDER:-openai_generic}"
+LLM_MODEL="${LLM_MODEL:-nvidia/Qwen3-Next-80B-A3B-Instruct-NVFP4}"
+LLM_API_URL="${LLM_API_URL:-http://dgx-spark:8000/v1}"
+LLM_MAX_TOKENS="${LLM_MAX_TOKENS:-8192}"
+EMBEDDER_MODEL="${EMBEDDER_MODEL:-nomic-embed-text:v1.5}"
+EMBEDDER_DIMENSIONS="${EMBEDDER_DIMENSIONS:-768}"
+EMBEDDER_API_URL="${EMBEDDER_API_URL:-http://minisforum:11434/v1}"
+RERANKER_PROVIDER="${RERANKER_PROVIDER:-bge}"
 
 mkdir -p "$DEV_DIR/logs" "$DEV_DIR/pids" "$DEV_DIR/data/falkordb"
 
@@ -71,8 +92,9 @@ else
     --port "$FALKORDB_PORT" \
     --dir "$DEV_DIR/data/falkordb" \
     --daemonize no \
-    --save "" \
-    --appendonly no \
+    --save "300 10 60 1000" \
+    --appendonly yes \
+    --appendfsync everysec \
     --loglevel notice \
     > "$DEV_DIR/logs/falkordb.log" 2>&1 &
   echo $! > "$DEV_DIR/pids/falkordb.pid"
@@ -178,22 +200,29 @@ fi
 if is_running "$DEV_DIR/pids/graphiti.pid"; then
   echo "==> Graphiti MCP server already running (pid $(cat "$DEV_DIR/pids/graphiti.pid"))"
 else
-  if [ -z "${OPENAI_API_KEY:-}" ]; then
-    echo ""
-    echo "WARNING: OPENAI_API_KEY is not set."
-    echo "Graphiti needs it for entity extraction and embeddings."
-    echo "Set it in .env or export it before running this script."
-    echo ""
-  fi
-
   echo "==> Starting Graphiti MCP server on port $GRAPHITI_PORT..."
+  echo "    LLM:               $LLM_PROVIDER / $LLM_MODEL"
+  echo "    LLM endpoint:      $LLM_API_URL"
+  echo "    Embedder:          $EMBEDDER_MODEL (${EMBEDDER_DIMENSIONS}d)"
+  echo "    Embedder endpoint: $EMBEDDER_API_URL"
+  echo "    Reranker:          $RERANKER_PROVIDER"
 
-  GRAPHITI_DIR="$DEV_DIR/graphiti/mcp_server"
+  GRAPHITI_DIR="$GRAPHITI_PATH/mcp_server"
 
   # Set environment for Graphiti
-  export OPENAI_API_KEY="${OPENAI_API_KEY:-}"
+  export OPENAI_API_KEY="${OPENAI_API_KEY:-not-needed}"
   export FALKORDB_URI="redis://localhost:$FALKORDB_PORT"
   export EPISODE_ID_PREFIX="${EPISODE_ID_PREFIX:-epi-}"
+
+  # Export local model configuration
+  export LLM_PROVIDER
+  export LLM_MODEL
+  export LLM_API_URL
+  export LLM_MAX_TOKENS
+  export EMBEDDER_MODEL
+  export EMBEDDER_DIMENSIONS
+  export EMBEDDER_API_URL
+  export RERANKER_PROVIDER
 
   cd "$GRAPHITI_DIR"
   uv run main.py \

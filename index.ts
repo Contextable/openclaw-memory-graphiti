@@ -12,6 +12,7 @@
 
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { Type } from "@sinclair/typebox";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -117,9 +118,9 @@ const memoryGraphitiPlugin = {
         name: "memory_recall",
         label: "Memory Recall",
         description:
-          "Search through memories using the knowledge graph. Returns entities and facts the current user is authorized to see. Supports session, long-term, or combined scope.",
+          "Search through memories using the knowledge graph. Returns entities and facts the current user is authorized to see. Supports session, long-term, or combined scope. REQUIRES a search query.",
         parameters: Type.Object({
-          query: Type.String({ description: "Search query" }),
+          query: Type.String({ description: "REQUIRED: Search query for semantic matching" }),
           limit: Type.Optional(Type.Number({ description: "Max results (default: 10)" })),
           scope: Type.Optional(
             Type.Union(
@@ -249,7 +250,7 @@ const memoryGraphitiPlugin = {
             Type.Array(Type.String(), { description: "Person/agent IDs involved in this memory" }),
           ),
           group_id: Type.Optional(
-            Type.String({ description: "Target group for this memory (default: configured group)" }),
+            Type.String({ description: "Target group ID (optional, uses your default group if omitted)" }),
           ),
           longTerm: Type.Optional(
             Type.Boolean({ description: "Store as long-term memory (default: true). Set to false for session-scoped." }),
@@ -270,10 +271,22 @@ const memoryGraphitiPlugin = {
             longTerm?: boolean;
           };
 
+          // Sanitize group_id: SpiceDB requires alphanumeric + _|\\-=+ only (no spaces!)
+          const sanitizeGroupId = (id?: string): string | undefined => {
+            if (!id) return undefined;
+            const trimmed = id.trim();
+            // If it looks like a description rather than an ID, ignore it
+            if (trimmed.includes(' ') || trimmed.toLowerCase().includes('configured')) {
+              return undefined;
+            }
+            return trimmed;
+          };
+
           // Resolve target group: explicit > longTerm flag > default
           let targetGroupId: string;
-          if (group_id) {
-            targetGroupId = group_id;
+          const sanitizedGroupId = sanitizeGroupId(group_id);
+          if (sanitizedGroupId) {
+            targetGroupId = sanitizedGroupId;
           } else if (!longTerm && currentSessionId) {
             targetGroupId = sessionGroupId(currentSessionId);
           } else {
@@ -312,8 +325,10 @@ const memoryGraphitiPlugin = {
           }
 
           // 1. Add episode to Graphiti
+          // Generate unique episode name to avoid collisions
+          const episodeName = `memory_${randomUUID()}`;
           const result = await graphiti.addEpisode({
-            name: `memory_${Date.now()}`,
+            name: episodeName,
             episode_body: content,
             source_description,
             group_id: targetGroupId,
@@ -682,8 +697,10 @@ const memoryGraphitiPlugin = {
             }
           }
 
+          // Generate unique episode name to avoid collisions
+          const episodeName = `auto_capture_${randomUUID()}`;
           const result = await graphiti.addEpisode({
-            name: `auto_capture_${Date.now()}`,
+            name: episodeName,
             episode_body: episodeBody,
             source_description: "auto-captured conversation",
             group_id: targetGroupId,
