@@ -19,6 +19,7 @@ export type GraphitiMemoryConfig = {
 };
 
 const DEFAULT_SPICEDB_ENDPOINT = "localhost:50051";
+const DEFAULT_SPICEDB_TOKEN = "";
 const DEFAULT_GRAPHITI_ENDPOINT = "http://localhost:8000";
 const DEFAULT_GROUP_ID = "main";
 const DEFAULT_UUID_POLL_INTERVAL_MS = 3000;
@@ -54,10 +55,11 @@ function assertAllowedKeys(value: Record<string, unknown>, allowed: string[], la
 
 export const graphitiMemoryConfigSchema = {
   parse(value: unknown): GraphitiMemoryConfig {
-    if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error("openclaw-memory-graphiti config required");
+    if (Array.isArray(value)) {
+      throw new Error("openclaw-memory-graphiti config must be an object, not an array");
     }
-    const cfg = value as Record<string, unknown>;
+    // Accept undefined/null (installer writes no config key) — treat as empty {}
+    const cfg = (value && typeof value === "object" ? value : {}) as Record<string, unknown>;
     assertAllowedKeys(
       cfg,
       [
@@ -68,10 +70,7 @@ export const graphitiMemoryConfigSchema = {
     );
 
     // SpiceDB config
-    const spicedb = cfg.spicedb as Record<string, unknown> | undefined;
-    if (!spicedb || typeof spicedb.token !== "string") {
-      throw new Error("spicedb.token is required");
-    }
+    const spicedb = (cfg.spicedb as Record<string, unknown>) ?? {};
     assertAllowedKeys(spicedb, ["endpoint", "token", "insecure"], "spicedb config");
 
     // Graphiti config
@@ -87,7 +86,7 @@ export const graphitiMemoryConfigSchema = {
       spicedb: {
         endpoint:
           typeof spicedb.endpoint === "string" ? spicedb.endpoint : DEFAULT_SPICEDB_ENDPOINT,
-        token: resolveEnvVars(spicedb.token),
+        token: typeof spicedb.token === "string" ? resolveEnvVars(spicedb.token) : DEFAULT_SPICEDB_TOKEN,
         insecure: spicedb.insecure !== false,
       },
       graphiti: {

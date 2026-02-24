@@ -1,4 +1,7 @@
 import { describe, test, expect, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { graphitiMemoryConfigSchema } from "./config.js";
 
 describe("graphitiMemoryConfigSchema", () => {
@@ -79,18 +82,21 @@ describe("graphitiMemoryConfigSchema", () => {
     }).toThrow("Environment variable NONEXISTENT_VAR is not set");
   });
 
-  test("throws on missing spicedb config", () => {
-    expect(() => {
-      graphitiMemoryConfigSchema.parse({});
-    }).toThrow("spicedb.token is required");
+  test("defaults spicedb config when omitted (installer-friendly)", () => {
+    const config = graphitiMemoryConfigSchema.parse({});
+
+    expect(config.spicedb.endpoint).toBe("localhost:50051");
+    expect(config.spicedb.token).toBe("");
+    expect(config.spicedb.insecure).toBe(true);
   });
 
-  test("throws on missing spicedb.token", () => {
-    expect(() => {
-      graphitiMemoryConfigSchema.parse({
-        spicedb: { endpoint: "localhost:50051" },
-      });
-    }).toThrow("spicedb.token is required");
+  test("defaults spicedb.token to empty string when omitted", () => {
+    const config = graphitiMemoryConfigSchema.parse({
+      spicedb: { endpoint: "custom:50051" },
+    });
+
+    expect(config.spicedb.endpoint).toBe("custom:50051");
+    expect(config.spicedb.token).toBe("");
   });
 
   test("throws on unknown top-level keys", () => {
@@ -110,10 +116,22 @@ describe("graphitiMemoryConfigSchema", () => {
     }).toThrow("unknown keys: badField");
   });
 
-  test("throws on non-object input", () => {
-    expect(() => graphitiMemoryConfigSchema.parse(null)).toThrow("config required");
-    expect(() => graphitiMemoryConfigSchema.parse("string")).toThrow("config required");
-    expect(() => graphitiMemoryConfigSchema.parse([])).toThrow("config required");
+  test("treats null/undefined/string as empty config (all defaults)", () => {
+    // The installer writes no config key, so pluginConfig is undefined.
+    // parse() should treat these as {} and return all defaults (empty token).
+    const fromNull = graphitiMemoryConfigSchema.parse(null);
+    expect(fromNull.spicedb.token).toBe("");
+    expect(fromNull.spicedb.endpoint).toBe("localhost:50051");
+
+    const fromUndefined = graphitiMemoryConfigSchema.parse(undefined);
+    expect(fromUndefined.spicedb.token).toBe("");
+
+    const fromString = graphitiMemoryConfigSchema.parse("string");
+    expect(fromString.spicedb.token).toBe("");
+  });
+
+  test("throws on array input", () => {
+    expect(() => graphitiMemoryConfigSchema.parse([])).toThrow("not an array");
   });
 
   // Phase 2: customInstructions and maxCaptureMessages
@@ -192,5 +210,75 @@ describe("graphitiMemoryConfigSchema", () => {
 
     expect(config.graphiti.uuidPollIntervalMs).toBe(3000);
     expect(config.graphiti.uuidPollMaxAttempts).toBe(30);
+  });
+});
+
+// ============================================================================
+// openclaw.plugin.json — install-time JSON Schema validation
+//
+// OpenClaw's installer validates plugin config against the JSON Schema in
+// openclaw.plugin.json BEFORE the TypeScript parse() runs. These tests ensure
+// both layers accept the empty config: {} that the installer writes.
+// ============================================================================
+
+describe("openclaw.plugin.json configSchema (install-time validation)", () => {
+  const manifestPath = join(dirname(fileURLToPath(import.meta.url)), "openclaw.plugin.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+  const jsonSchema = manifest.configSchema;
+
+  test("manifest is valid JSON with configSchema", () => {
+    expect(jsonSchema).toBeDefined();
+    expect(jsonSchema.type).toBe("object");
+    expect(jsonSchema.properties).toBeDefined();
+  });
+
+  test("top-level configSchema has no required fields", () => {
+    // The installer writes config: {} — any top-level "required" will reject it
+    expect(jsonSchema.required).toBeUndefined();
+  });
+
+  test("spicedb sub-schema has no required fields", () => {
+    // Even if spicedb is provided as {}, no fields within should be required at install time
+    const spicedbSchema = jsonSchema.properties?.spicedb;
+    expect(spicedbSchema).toBeDefined();
+    expect(spicedbSchema.required).toBeUndefined();
+  });
+
+  test("graphiti sub-schema has no required fields", () => {
+    const graphitiSchema = jsonSchema.properties?.graphiti;
+    expect(graphitiSchema).toBeDefined();
+    expect(graphitiSchema.required).toBeUndefined();
+  });
+
+  test("no sub-schema anywhere has required fields", () => {
+    // Walk the entire schema tree to catch any "required" we might miss
+    const findRequired = (obj: unknown, path: string): string[] => {
+      if (!obj || typeof obj !== "object") return [];
+      const o = obj as Record<string, unknown>;
+      const found: string[] = [];
+      if (Array.isArray(o.required) && o.required.length > 0) {
+        found.push(`${path}.required = ${JSON.stringify(o.required)}`);
+      }
+      if (o.properties && typeof o.properties === "object") {
+        for (const [key, val] of Object.entries(o.properties as Record<string, unknown>)) {
+          found.push(...findRequired(val, `${path}.properties.${key}`));
+        }
+      }
+      return found;
+    };
+
+    const violations = findRequired(jsonSchema, "configSchema");
+    expect(violations).toEqual([]);
+  });
+
+  test("TypeScript parse() accepts empty config (what installer writes)", () => {
+    // This is the exact config the installer creates:
+    //   plugins.entries.openclaw-memory-graphiti.config = {}
+    expect(() => graphitiMemoryConfigSchema.parse({})).not.toThrow();
+  });
+
+  test("TypeScript parse() accepts config with empty spicedb object", () => {
+    // Installer might also write { spicedb: {} } if user partially fills it
+    expect(() => graphitiMemoryConfigSchema.parse({ spicedb: {} })).not.toThrow();
   });
 });
